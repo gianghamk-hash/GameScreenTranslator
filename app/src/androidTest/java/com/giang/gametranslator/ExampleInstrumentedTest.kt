@@ -16,6 +16,25 @@ import org.junit.Assert.*
 @RunWith(AndroidJUnit4::class)
 class ExampleInstrumentedTest {
     @Test
+    fun mainActivityStartsAndInflatesControls() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val intent = android.content.Intent(context, MainActivity::class.java)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        val activity = instrumentation.startActivitySync(intent)
+        try {
+            instrumentation.waitForIdleSync()
+            instrumentation.runOnMainSync {
+                assertNotNull(activity.findViewById<android.view.View>(R.id.edtApiKey))
+                assertNotNull(activity.findViewById<android.view.View>(R.id.btnStart))
+                assertNotNull(activity.findViewById<android.view.View>(R.id.btnUpdate))
+            }
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
+
+    @Test
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
