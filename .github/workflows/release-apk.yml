@@ -1,0 +1,40 @@
+name: Build & Release APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Nhập mã phiên bản mới (vd: v1.1)'
+        required: true
+        default: 'v1.1'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Tải mã nguồn
+        uses: actions/checkout@v4
+
+      - name: Cài đặt Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cấp quyền chạy Gradle
+        run: chmod +x gradlew
+
+      - name: Build file APK
+        run: ./gradlew assembleDebug
+
+      - name: Đăng lên GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: "Phiên bản ${{ github.event.inputs.version }}"
+          body: "Bản cập nhật tự động build từ GitHub Actions."
+          files: app/build/outputs/apk/debug/app-debug.apk
