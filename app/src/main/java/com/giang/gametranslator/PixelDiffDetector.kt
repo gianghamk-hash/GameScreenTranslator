@@ -1,4 +1,4 @@
-package com.example.gamescreentranslator
+package com.giang.gametranslator
 
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -6,9 +6,9 @@ import android.graphics.Rect
 import kotlin.math.abs
 
 class PixelDiffDetector(
-    private val cols: Int = 16,
-    private val rows: Int = 8,
-    private val changeThresholdRatio: Float = 0.08f // Đổi > 8% điểm mẫu thì coi là thoại mới
+    private val cols: Int = 32,
+    private val rows: Int = 16,
+    private val changeThresholdRatio: Float = 0.025f // Đổi > 8% điểm mẫu thì coi là thoại mới
 ) {
     private var lastSignature: IntArray? = null
 

@@ -1,4 +1,4 @@
-package com.example.gamescreentranslator // Đổi lại cho khớp package của bạn
+package com.giang.gametranslator
 
 import android.app.Activity
 import android.app.Notification
@@ -44,8 +44,8 @@ class OverlayService : Service() {
         const val EXTRA_DATA = "data"
         private const val CHANNEL_ID = "game_translator_channel"
         private const val NOTIF_ID = 1001
-        private const val PREFS_NAME = "GameTranslatorPrefs"
-        private const val KEY_API = "gemini_api_key"
+        private const val PREFS_NAME = "AppPrefs"
+        private const val KEY_API = "API_KEY"
     }
 
     private lateinit var windowManager: WindowManager
@@ -67,13 +67,23 @@ class OverlayService : Service() {
     private val translator: GeminiTranslator by lazy {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val savedKey = prefs.getString(KEY_API, "").orEmpty()
-        GeminiTranslator(apiKey = savedKey)
+        GeminiTranslator(apiKey = savedKey, model = prefs.getString("MODEL_NAME", "gemini-3.5-flash-lite").orEmpty().ifBlank { "gemini-3.5-flash-lite" }).apply {
+            currentStyle = GameStyle.entries.firstOrNull { it.name == prefs.getString("STYLE", "") } ?: GameStyle.RPG_FANTASY
+        }
     }
 
     // Trạng thái Auto-Translate & khung chọn vùng dịch
     private var autoTranslateJob: Job? = null
     private var isAutoTranslating = false
     private var isCapturing = false
+    private var lastText = ""
+    private var lastTranslation = ""
+    private var lastScan = 0L
+    private var cropMode = 0
+    private var lastLatency = 0L
+    private val projectionCallback = object : MediaProjection.Callback() {
+        override fun onStop() { stopSelf() }
+    }
     private var customCropRect: Rect? = null // Gán tọa độ khung crop của bạn vào đây
 
     // Các View trên Overlay (đổi ID khớp với XML của bạn)
@@ -105,8 +115,9 @@ class OverlayService : Service() {
             val projectionManager =
                 getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+            mediaProjection?.registerCallback(projectionCallback, android.os.Handler(mainLooper))
             setupVirtualDisplay()
-        }
+        } else if (mediaProjection == null) stopSelf()
         return START_NOT_STICKY
     }
 
@@ -163,10 +174,33 @@ class OverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 40
-            y = 200
+            x = 16
+            y = 100
         }
 
+        tvSubtitle?.maxWidth = (screenWidth * 0.72f).toInt()
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        tvSubtitle?.textSize = prefs.getInt("SUBTITLE_SIZE", 18).toFloat()
+        tvSubtitle?.background?.alpha = prefs.getInt("SUBTITLE_ALPHA", 204)
+        view.findViewById<View>(R.id.btnClose).setOnClickListener { stopSelf() }
+        view.findViewById<View>(R.id.btnRegion).setOnClickListener {
+            if (!isCapturing) {
+                cropMode = (cropMode + 1) % 3
+                customCropRect = when (cropMode) {
+                    1 -> Rect(0, screenHeight * 2 / 3, screenWidth, screenHeight)
+                    2 -> Rect(0, 0, screenWidth, screenHeight / 3)
+                    else -> null
+                }
+                diffDetector.reset(); lastText = ""
+                Toast.makeText(this, listOf("Toàn màn hình", "1/3 dưới", "1/3 trên")[cropMode], Toast.LENGTH_SHORT).show()
+            }
+        }
+        view.findViewById<View>(R.id.btnHistory).setOnClickListener {
+            if (!isCapturing) tvSubtitle?.text = translator.dialogueHistory.takeLast(4).joinToString("\n\n") { it.second }.ifBlank { "Chưa có lịch sử" }
+        }
+        view.findViewById<View>(R.id.btnHide).setOnClickListener {
+            tvSubtitle?.visibility = if (tvSubtitle?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
         // Bấm 1 chạm để dịch ngay lập tức
         btnTranslate?.setOnClickListener {
             captureAndTranslate(isAutoMode = false)
@@ -190,10 +224,14 @@ class OverlayService : Service() {
     }
 
     private fun cycleGameStyle() {
+        if (isCapturing) return
         val styles = GameStyle.entries
         val nextIndex = (styles.indexOf(translator.currentStyle) + 1) % styles.size
         translator.currentStyle = styles[nextIndex]
-        translator.clearContext() // Xóa ngữ cảnh cũ khi đổi thể loại game
+        translator.clearContext()
+        lastText = ""
+        diffDetector.reset()
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString("STYLE", translator.currentStyle.name).apply()
         Toast.makeText(
             this,
             "Văn phong: ${translator.currentStyle.label}",
@@ -203,13 +241,14 @@ class OverlayService : Service() {
 
     private fun toggleAutoTranslate() {
         isAutoTranslating = !isAutoTranslating
+        btnAuto?.alpha = if (isAutoTranslating) 1f else 0.55f
         if (isAutoTranslating) {
             diffDetector.reset()
             Toast.makeText(this, "Đã BẬT tự động dịch", Toast.LENGTH_SHORT).show()
             autoTranslateJob = serviceScope.launch {
                 while (isActive && isAutoTranslating) {
                     captureAndTranslate(isAutoMode = true)
-                    delay(700L) // Quét kiểm tra thay đổi mỗi 0.7 giây
+                    delay(250L) // Quét kiểm tra thay đổi mỗi 0.7 giây
                 }
             }
         } else {
@@ -223,10 +262,11 @@ class OverlayService : Service() {
         if (isCapturing) return
         val reader = imageReader ?: return
 
-        val image = reader.acquireLatestImage() ?: return
+        val image = try { reader.acquireLatestImage() } catch (_: IllegalStateException) { null } ?: return
         isCapturing = true
 
         serviceScope.launch {
+            val started = android.os.SystemClock.elapsedRealtime()
             var fullBitmap: Bitmap? = null
             try {
                 // 1. Chuyển Image sang Bitmap (xử lý chuẩn rowStride tránh xé hình)
@@ -243,8 +283,12 @@ class OverlayService : Service() {
                         Bitmap.Config.ARGB_8888
                     )
                     bmp.copyPixelsFromBuffer(buffer)
-                    bmp
+                    if (bmp.width == screenWidth) bmp else Bitmap.createBitmap(bmp, 0, 0, screenWidth, screenHeight).also { bmp.recycle() }
                 }
+            } catch (e: Exception) {
+                isCapturing = false
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                return@launch
             } finally {
                 image.close()
             }
@@ -256,22 +300,32 @@ class OverlayService : Service() {
 
             try {
                 // 2. Nếu là Auto-Translate và vùng thoại chưa đổi chữ -> bỏ qua luôn (< 2ms)
-                if (isAutoMode && !diffDetector.hasRegionChanged(captured, customCropRect)) {
+                val changed = withContext(Dispatchers.Default) { diffDetector.hasRegionChanged(captured, customCropRect) }
+                if (isAutoMode && !changed && started - lastScan < 1500L) {
                     return@launch
                 }
 
+                lastScan = started
                 // 3. Quét OCR & gom câu hoàn chỉnh
                 val ocrText = withContext(Dispatchers.Default) {
                     ocrProcessor.extractText(captured, customCropRect)
                 }
 
                 if (ocrText.isBlank()) return@launch
+                if (ocrText == lastText && lastTranslation.isNotBlank()) {
+                    if (!isAutoMode) { tvSubtitle?.text = lastTranslation; tvSubtitle?.visibility = View.VISIBLE }
+                    return@launch
+                }
 
                 // 4. Dịch bằng Gemini 3.5 Flash-Lite (kèm LRU Cache + Ngữ cảnh)
                 val result = translator.translate(ocrText)
                 result.onSuccess { vietnameseText ->
                     if (vietnameseText.isNotBlank()) {
+                        lastText = ocrText
+                        lastTranslation = vietnameseText
+                        lastLatency = android.os.SystemClock.elapsedRealtime() - started
                         tvSubtitle?.text = vietnameseText
+                        tvSubtitle?.contentDescription = "Bản dịch, $lastLatency ms"
                         tvSubtitle?.visibility = View.VISIBLE
                     }
                 }.onFailure { err ->
@@ -280,7 +334,8 @@ class OverlayService : Service() {
                         tvSubtitle?.visibility = View.VISIBLE
                     }
                 }
-            } finally {
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e
+            } catch (_: Exception) { if (!isAutoMode) tvSubtitle?.text = "Không đọc được màn hình. Thử lại." } finally {
                 if (!captured.isRecycled) captured.recycle()
                 isCapturing = false
             }
@@ -303,8 +358,8 @@ class OverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - initialTouchX).toInt()
-                    params.y = initialY + (event.rawY - initialTouchY).toInt()
+                    params.x = (initialX + (event.rawX - initialTouchX).toInt()).coerceIn(0, (screenWidth - targetView.width).coerceAtLeast(0))
+                    params.y = (initialY + (event.rawY - initialTouchY).toInt()).coerceIn(0, (screenHeight - targetView.height).coerceAtLeast(0))
                     windowManager.updateViewLayout(targetView, params)
                     true
                 }
@@ -340,6 +395,7 @@ class OverlayService : Service() {
         ocrProcessor.close()
         virtualDisplay?.release()
         imageReader?.close()
+        mediaProjection?.unregisterCallback(projectionCallback)
         mediaProjection?.stop()
         overlayView?.let { windowManager.removeView(it) }
     }
