@@ -18,12 +18,12 @@ class OcrProcessor {
     /**
      * Cắt vùng chọn, nén xuống tối đa 1080px để tăng tốc OCR, rồi nhận diện & gom câu.
      */
-    suspend fun extractText(fullScreenBitmap: Bitmap, cropRect: Rect?): String {
+    suspend fun extractText(fullScreenBitmap: Bitmap, cropRect: Rect?, smart: Boolean = false): String {
         val cropped = cropSafely(fullScreenBitmap, cropRect)
         val scaled = scaleDownIfNeeded(cropped, maxDimension = 1080)
 
         return try {
-            recognizeMergedText(scaled)
+            recognizeMergedText(scaled, smart)
         } finally {
             // Tránh rò rỉ bộ nhớ (Memory Leak) khi chạy nền lâu dài
             if (scaled !== cropped) scaled.recycle()
@@ -31,7 +31,7 @@ class OcrProcessor {
         }
     }
 
-    private suspend fun recognizeMergedText(bitmap: Bitmap): String =
+    private suspend fun recognizeMergedText(bitmap: Bitmap, smart: Boolean): String =
         suspendCancellableCoroutine { cont ->
             val image = InputImage.fromBitmap(bitmap, 0)
             recognizer.process(image)
@@ -50,7 +50,12 @@ class OcrProcessor {
                         merged.ifBlank { null }
                     }
 
-                    if (cont.isActive) cont.resume(paragraphs.joinToString("\n"))
+                    val selected = if (smart) DialogueDetection.select(sortedBlocks.mapNotNull { block ->
+                        val box = block.boundingBox ?: return@mapNotNull null
+                        TextRegion(block.text.trim(), box.left.toFloat()/bitmap.width, box.top.toFloat()/bitmap.height,
+                            box.width().toFloat()/bitmap.width, box.height().toFloat()/bitmap.height)
+                    }) else paragraphs.joinToString("\n")
+                    if (cont.isActive) cont.resume(selected)
                 }
                 .addOnFailureListener { e ->
                     if (cont.isActive) cont.resumeWithException(e)

@@ -67,7 +67,7 @@ class OverlayService : Service() {
     private val translator: GeminiTranslator by lazy {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val savedKey = prefs.getString(KEY_API, "").orEmpty()
-        GeminiTranslator(apiKey = savedKey, model = prefs.getString("MODEL_NAME", "gemini-3.5-flash-lite").orEmpty().ifBlank { "gemini-3.5-flash-lite" }).apply {
+        GeminiTranslator(apiKey = savedKey, model = prefs.getString("MODEL_NAME", "gemini-3.5-flash-lite").orEmpty().ifBlank { "gemini-3.5-flash-lite" }, context = this, profile = prefs.getString("GAME_PROFILE", "Mặc định").orEmpty(), hybrid = prefs.getBoolean("HYBRID", false)).apply {
             currentStyle = GameStyle.entries.firstOrNull { it.name == prefs.getString("STYLE", "") } ?: GameStyle.RPG_FANTASY
         }
     }
@@ -76,6 +76,21 @@ class OverlayService : Service() {
     private var autoTranslateJob: Job? = null
     private var isAutoTranslating = false
     private var isCapturing = false
+    private val policy = ScanPolicy()
+    private var translationJob: Job? = null
+    private var generation = 0L
+    private var activeText = ""
+    private var activeAuto = false
+    private var manualPending = false
+    private var lastChange = 0L
+    private var selector: View? = null
+    private var subtitleHidden = false
+    private var autoFailures = 0
+    private var retryAfter = 0L
+    private var customZone: Rect? = null
+    private val prefs by lazy { getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+    private val zoneKey get() = "ZONE_" + TranslationMemory.hash(prefs.getString("GAME_PROFILE", "Mặc định").orEmpty()) + "_" + (screenWidth > screenHeight)
+    private val smartEnabled get() = prefs.getBoolean("SMART_DIALOGUE", true)
     private var lastText = ""
     private var lastTranslation = ""
     private var lastScan = 0L
@@ -99,6 +114,8 @@ class OverlayService : Service() {
         initScreenMetrics()
         startForegroundServiceNotification()
         setupOverlayView()
+        restoreZone()
+        translator.prepareOffline { ready -> Toast.makeText(this, if (ready) "Dịch offline đã sẵn sàng" else "Chưa tải được model offline (cần Wi-Fi)", Toast.LENGTH_SHORT).show() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -184,26 +201,30 @@ class OverlayService : Service() {
         tvSubtitle?.textSize = prefs.getInt("SUBTITLE_SIZE", 18).toFloat()
         tvSubtitle?.background?.alpha = prefs.getInt("SUBTITLE_ALPHA", 204)
         view.findViewById<View>(R.id.btnClose).setOnClickListener { stopSelf() }
+        view.findViewById<View>(R.id.btnRegion).setOnLongClickListener { openZoneSelector(); true }
         view.findViewById<View>(R.id.btnRegion).setOnClickListener {
             if (!isCapturing) {
-                cropMode = (cropMode + 1) % 3
+                cropMode = (cropMode + 1) % (if (customZone == null) 3 else 4)
                 customCropRect = when (cropMode) {
                     1 -> Rect(0, screenHeight * 2 / 3, screenWidth, screenHeight)
                     2 -> Rect(0, 0, screenWidth, screenHeight / 3)
+                    3 -> customZone
                     else -> null
                 }
-                diffDetector.reset(); lastText = ""
-                Toast.makeText(this, listOf("Toàn màn hình", "1/3 dưới", "1/3 trên")[cropMode], Toast.LENGTH_SHORT).show()
+                invalidateTranslation(); diffDetector.reset(); policy.reset(); lastText = ""
+                Toast.makeText(this, listOf("Toàn màn hình", "1/3 dưới", "1/3 trên", "Vùng tự chọn")[cropMode], Toast.LENGTH_SHORT).show()
             }
         }
         view.findViewById<View>(R.id.btnHistory).setOnClickListener {
-            if (!isCapturing) tvSubtitle?.apply {
+            if (!isCapturing && translationJob?.isActive != true) tvSubtitle?.apply {
                 text = translator.dialogueHistory.takeLast(4).joinToString("\n\n") { it.second }.ifBlank { "Chưa có lịch sử" }
+                subtitleHidden = false
                 visibility = View.VISIBLE
             }
         }
         view.findViewById<View>(R.id.btnHide).setOnClickListener {
-            tvSubtitle?.visibility = if (tvSubtitle?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            subtitleHidden = !subtitleHidden
+            tvSubtitle?.visibility = if (subtitleHidden) View.GONE else View.VISIBLE
         }
         // Bấm 1 chạm để dịch ngay lập tức
         btnTranslate?.setOnClickListener {
@@ -231,9 +252,11 @@ class OverlayService : Service() {
         if (isCapturing) return
         val styles = GameStyle.entries
         val nextIndex = (styles.indexOf(translator.currentStyle) + 1) % styles.size
+        invalidateTranslation()
         translator.currentStyle = styles[nextIndex]
         translator.clearContext()
         lastText = ""
+        policy.reset()
         diffDetector.reset()
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString("STYLE", translator.currentStyle.name).apply()
         Toast.makeText(
@@ -248,22 +271,27 @@ class OverlayService : Service() {
         btnAuto?.alpha = if (isAutoTranslating) 1f else 0.55f
         if (isAutoTranslating) {
             diffDetector.reset()
+            policy.reset()
+            lastChange = android.os.SystemClock.elapsedRealtime()
             Toast.makeText(this, "Đã BẬT tự động dịch", Toast.LENGTH_SHORT).show()
             autoTranslateJob = serviceScope.launch {
                 while (isActive && isAutoTranslating) {
                     captureAndTranslate(isAutoMode = true)
-                    delay(250L) // Quét kiểm tra thay đổi mỗi 0.7 giây
+                    delay(policy.interval(android.os.SystemClock.elapsedRealtime() - lastChange))
                 }
             }
         } else {
             autoTranslateJob?.cancel()
             autoTranslateJob = null
+            if (activeAuto) invalidateTranslation()
             Toast.makeText(this, "Đã TẮT tự động dịch", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun captureAndTranslate(isAutoMode: Boolean) {
-        if (isCapturing) return
+        if (selector != null) return
+        if (isAutoMode && translationJob?.isActive == true && !activeAuto) return
+        if (isCapturing) { if (!isAutoMode) manualPending = true; return }
         val reader = imageReader ?: return
 
         val image = try { reader.acquireLatestImage() } catch (_: IllegalStateException) { null } ?: return
@@ -314,45 +342,145 @@ class OverlayService : Service() {
                     overlayBounds?.let { bounds -> android.graphics.Canvas(captured).drawRect(bounds, android.graphics.Paint().apply { color = android.graphics.Color.BLACK }) }
                     diffDetector.hasRegionChanged(captured, customCropRect)
                 }
-                if (isAutoMode && !changed && started - lastScan < 1500L) {
+                if (changed) lastChange = started
+                if (isAutoMode && !changed && !policy.hasPending() && started - lastScan < 1500L) {
                     return@launch
                 }
 
                 lastScan = started
                 // 3. Quét OCR & gom câu hoàn chỉnh
                 val ocrText = withContext(Dispatchers.Default) {
-                    ocrProcessor.extractText(captured, customCropRect)
+                    ocrProcessor.extractText(captured, customCropRect, isAutoMode && customCropRect == null && smartEnabled)
                 }
 
-                if (ocrText.isBlank()) return@launch
-                if (ocrText == lastText && lastTranslation.isNotBlank()) {
-                    if (!isAutoMode) { tvSubtitle?.text = lastTranslation; tvSubtitle?.visibility = View.VISIBLE }
+                if (isAutoMode && !isAutoTranslating) return@launch
+                if (selector != null) return@launch
+                val stableText = policy.observe(ocrText, android.os.SystemClock.elapsedRealtime(), !isAutoMode) ?: return@launch
+                if (isAutoMode && android.os.SystemClock.elapsedRealtime() < retryAfter) { policy.retry(); return@launch }
+                if (stableText == lastText && lastTranslation.isNotBlank()) {
+                    if (activeText.isNotBlank() && activeText != stableText) invalidateTranslation()
+                    showSubtitle(lastTranslation)
                     return@launch
                 }
-
-                // 4. Dịch bằng Gemini 3.5 Flash-Lite (kèm LRU Cache + Ngữ cảnh)
-                val result = translator.translate(ocrText)
-                result.onSuccess { vietnameseText ->
-                    if (vietnameseText.isNotBlank()) {
-                        lastText = ocrText
-                        lastTranslation = vietnameseText
-                        lastLatency = android.os.SystemClock.elapsedRealtime() - started
-                        tvSubtitle?.text = vietnameseText
-                        tvSubtitle?.contentDescription = "Bản dịch, $lastLatency ms"
-                        tvSubtitle?.visibility = View.VISIBLE
-                    }
-                }.onFailure { err ->
-                    if (!isAutoMode) {
-                        tvSubtitle?.text = "Lỗi dịch: ${err.message}"
-                        tvSubtitle?.visibility = View.VISIBLE
-                    }
-                }
+                enqueueTranslation(stableText, isAutoMode, started)
             } catch (e: kotlinx.coroutines.CancellationException) { throw e
             } catch (_: Exception) { if (!isAutoMode) tvSubtitle?.apply { text = "Không đọc được màn hình. Thử lại."; visibility = View.VISIBLE } } finally {
                 if (!captured.isRecycled) captured.recycle()
                 isCapturing = false
+                if (manualPending) { manualPending = false; captureAndTranslate(false) }
             }
         }
+    }
+
+    private fun showSubtitle(text: String) {
+        tvSubtitle?.text = text
+        if (!subtitleHidden) tvSubtitle?.visibility = View.VISIBLE
+    }
+
+    private fun invalidateTranslation() {
+        generation++
+        translationJob?.cancel()
+        translationJob = null
+        activeText = ""
+    }
+
+    private fun enqueueTranslation(text: String, auto: Boolean, started: Long) {
+        if (activeText == text && translationJob?.isActive == true) return
+        invalidateTranslation()
+        val token = generation
+        activeText = text
+        activeAuto = auto
+        translationJob = serviceScope.launch {
+            val result = translator.translate(text) { partial ->
+                serviceScope.launch {
+                    if (token == generation && !subtitleHidden) showSubtitle(partial)
+                }
+            }
+            if (token != generation) return@launch
+            activeText = ""
+            result.onSuccess { value ->
+                if (value.isNotBlank()) {
+                    autoFailures = 0; retryAfter = 0
+                    lastText = text; lastTranslation = value
+                    lastLatency = android.os.SystemClock.elapsedRealtime() - started
+                    showSubtitle(value)
+                    tvSubtitle?.contentDescription = "Bản dịch, $lastLatency ms"
+                }
+            }.onFailure { err ->
+                if (!auto) showSubtitle("Lỗi dịch: ${err.message}")
+                else {
+                    autoFailures = (autoFailures + 1).coerceAtMost(4)
+                    retryAfter = android.os.SystemClock.elapsedRealtime() + (1000L shl autoFailures)
+                    policy.retry()
+                    if (lastTranslation.isNotBlank()) showSubtitle(lastTranslation)
+                    else showSubtitle("Đang thử lại dịch…")
+                }
+            }
+            generation++ // Reject callbacks queued after the final result.
+        }
+    }
+
+    private fun restoreZone() {
+        val coords = prefs.getString(zoneKey, "")?.split(",")?.mapNotNull { it.toFloatOrNull() }.orEmpty()
+        if (coords.size == 4 && coords.all { it in 0f..1f } && coords[2] > coords[0] && coords[3] > coords[1]) {
+            customZone = Rect((coords[0]*screenWidth).toInt(), (coords[1]*screenHeight).toInt(),
+                (coords[2]*screenWidth).toInt(), (coords[3]*screenHeight).toInt())
+            cropMode = 3; customCropRect = customZone
+        }
+    }
+
+    private fun openZoneSelector() {
+        if (selector != null || isCapturing) return
+        invalidateTranslation(); policy.reset()
+        val view = object : View(this) {
+            val brush = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+            var x1 = 0f; var y1 = 0f; var x2 = 0f; var y2 = 0f
+            override fun onDraw(canvas: android.graphics.Canvas) {
+                canvas.drawColor(0x55000000)
+                brush.color = 0xFF62E8D7.toInt(); brush.style = android.graphics.Paint.Style.STROKE
+                brush.strokeWidth = 4f
+                canvas.drawRect(minOf(x1,x2), minOf(y1,y2), maxOf(x1,x2), maxOf(y1,y2), brush)
+                brush.style = android.graphics.Paint.Style.FILL
+                brush.textSize = 16f * resources.displayMetrics.scaledDensity
+                canvas.drawText("Kéo chọn vùng dịch • Chạm để hủy", 20f, 55f, brush)
+            }
+            override fun onTouchEvent(e: MotionEvent): Boolean {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> { x1=e.x; y1=e.y; x2=x1; y2=y1 }
+                    MotionEvent.ACTION_MOVE -> { x2=e.x; y2=e.y }
+                    MotionEvent.ACTION_UP -> {
+                        x2=e.x; y2=e.y
+                        val pos = IntArray(2); getLocationOnScreen(pos)
+                        val left=(minOf(x1,x2).toInt()+pos[0]).coerceIn(0,screenWidth)
+                        val top=(minOf(y1,y2).toInt()+pos[1]).coerceIn(0,screenHeight)
+                        val right=(maxOf(x1,x2).toInt()+pos[0]).coerceIn(0,screenWidth)
+                        val bottom=(maxOf(y1,y2).toInt()+pos[1]).coerceIn(0,screenHeight)
+                        if (right-left >= 32 && bottom-top >= 32) {
+                            customZone=Rect(left,top,right,bottom); customCropRect=customZone; cropMode=3
+                            prefs.edit().putString(zoneKey, listOf(left.toFloat()/screenWidth,top.toFloat()/screenHeight,
+                                right.toFloat()/screenWidth,bottom.toFloat()/screenHeight).joinToString(",")).apply()
+                            lastText=""; diffDetector.reset(); policy.reset()
+                        }
+                        closeZoneSelector()
+                    }
+                    MotionEvent.ACTION_CANCEL -> closeZoneSelector()
+                }
+                invalidate()
+                return true
+            }
+        }
+        val params = WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT).apply { gravity=Gravity.TOP or Gravity.START }
+        selector=view
+        overlayView?.visibility=View.GONE
+        try { windowManager.addView(view,params) } catch (_: Exception) { selector=null; overlayView?.visibility=View.VISIBLE }
+    }
+
+    private fun closeZoneSelector() {
+        selector?.let { runCatching { windowManager.removeView(it) } }
+        selector=null
+        overlayView?.visibility=View.VISIBLE
     }
 
     private fun enableDragOnView(targetView: View, params: WindowManager.LayoutParams) {
@@ -404,7 +532,10 @@ class OverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         autoTranslateJob?.cancel()
+        invalidateTranslation()
+        closeZoneSelector()
         serviceScope.cancel()
+        translator.close()
         ocrProcessor.close()
         virtualDisplay?.release()
         imageReader?.close()
