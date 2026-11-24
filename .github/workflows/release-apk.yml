@@ -94,6 +94,18 @@ jobs:
           "$TOOLS" sign --ks "$KEYSTORE" --ks-key-alias "$OTA_KEY_ALIAS" --ks-pass env:OTA_STORE_PASSWORD --key-pass env:OTA_KEY_PASSWORD --out GameScreenTranslator.apk "$APK"
           "$TOOLS" verify --verbose GameScreenTranslator.apk
           sha256sum GameScreenTranslator.apk > GameScreenTranslator.apk.sha256
+      - name: Smoke test signed release APK
+        if: steps.version.outputs.publish == 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          script: |
+            adb install GameScreenTranslator.apk
+            adb shell am start -W -n com.giang.gametranslator/.MainActivity
+            sleep 5
+            adb shell pidof com.giang.gametranslator | grep -q '[0-9]' || { adb logcat -b crash -d; exit 1; }
       - name: Publish new version
         if: steps.version.outputs.publish == 'true'
         env:
