@@ -12,8 +12,8 @@ android {
         applicationId = "com.giang.gametranslator"
         minSdk = 33
         targetSdk = 37
-        versionCode = 20000
-        versionName = "2.0.0"
+        versionCode = 30000
+        versionName = "3.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -44,6 +44,7 @@ dependencies {
 
     // 1. Google ML Kit nhận diện chữ tiếng Anh
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:translate:17.0.3")
 
     // 2. OkHttp để gọi Gemini API dịch siêu nhanh
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
