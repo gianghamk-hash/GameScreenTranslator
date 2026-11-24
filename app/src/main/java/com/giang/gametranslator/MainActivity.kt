@@ -73,12 +73,29 @@ class MainActivity : AppCompatActivity() {
         val style = findViewById<android.widget.Spinner>(R.id.styleSpinner)
         style.adapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, GameStyle.entries.map { it.label })
         style.setSelection(GameStyle.entries.indexOfFirst { it.name == prefs.getString("STYLE", "") }.coerceAtLeast(0))
+        val profile = findViewById<EditText>(R.id.edtGameProfile)
+        profile.setText(prefs.getString("GAME_PROFILE", "Mặc định"))
+        val smart = findViewById<android.widget.CheckBox>(R.id.smartDialogue)
+        smart.isChecked = prefs.getBoolean("SMART_DIALOGUE", true)
+        val hybrid = findViewById<android.widget.CheckBox>(R.id.hybridTranslation)
+        hybrid.isChecked = prefs.getBoolean("HYBRID", false)
+        findViewById<Button>(R.id.btnClearMemory).setOnClickListener {
+            AlertDialog.Builder(this).setTitle("Xóa bộ nhớ bản dịch của mọi game?")
+                .setMessage("Dừng dịch trước khi xóa. Không ảnh hưởng API Key hoặc OTA.")
+                .setPositiveButton("Xóa") { _, _ ->
+                    stopService(Intent(this, OverlayService::class.java))
+                    TranslationMemory.clearAll(this)
+                    txtStatus.text = "Đã xóa cache và lịch sử ngữ cảnh"
+                }.setNegativeButton("Hủy", null).show()
+        }
         val size = findViewById<android.widget.SeekBar>(R.id.sizeSlider)
         size.progress = prefs.getInt("SUBTITLE_SIZE", 18) - 12
         val alpha = findViewById<android.widget.SeekBar>(R.id.alphaSlider)
         alpha.progress = prefs.getInt("SUBTITLE_ALPHA", 204) - 80
         findViewById<Button>(R.id.btnStart).setOnClickListener {
             prefs.edit().putString("STYLE", GameStyle.entries[style.selectedItemPosition].name)
+                .putString("GAME_PROFILE", profile.text.toString().trim().take(80).ifBlank { "Mặc định" })
+                .putBoolean("SMART_DIALOGUE", smart.isChecked).putBoolean("HYBRID", hybrid.isChecked)
                 .putInt("SUBTITLE_SIZE", size.progress + 12).putInt("SUBTITLE_ALPHA", alpha.progress + 80).apply()
             saveSettings()
             checkPermissionsAndStart()

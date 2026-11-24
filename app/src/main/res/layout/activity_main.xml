@@ -10,11 +10,17 @@
 <EditText android:id="@+id/edtModelName" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:textColor="#FFFFFF" android:singleLine="true"/>
 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Văn phong dịch" android:textColor="#B4C9D8" android:textSize="14sp" android:layout_marginTop="14dp"/>
 <Spinner android:id="@+id/styleSpinner" android:layout_width="match_parent" android:layout_height="48dp" android:backgroundTint="#65E1D4" android:popupBackground="#FFFFFF"/>
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Tên game • bộ nhớ và vùng dịch riêng" android:textColor="#B4C9D8" android:layout_marginTop="14dp"/>
+<EditText android:id="@+id/edtGameProfile" android:layout_width="match_parent" android:layout_height="wrap_content" android:singleLine="true" android:maxLength="80" android:textColor="#FFFFFF" android:hint="Tên game"/>
+<CheckBox android:id="@+id/smartDialogue" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Tự nhận diện hội thoại" android:textColor="#FFFFFF"/>
+<CheckBox android:id="@+id/hybridTranslation" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Hybrid Anh → Việt (tải model qua Wi-Fi)" android:textColor="#FFFFFF"/>
+<Button android:id="@+id/btnClearMemory" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="XÓA BỘ NHỚ DỊCH"/>
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Nhấn giữ nút vùng OCR để kéo chọn vùng riêng." android:textColor="#B4C9D8"/>
 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Cỡ chữ phụ đề • 12–28 sp" android:textColor="#B4C9D8" android:textSize="14sp" android:layout_marginTop="14dp"/>
 <SeekBar android:id="@+id/sizeSlider" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="16"/>
 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Độ đậm nền phụ đề" android:textColor="#B4C9D8" android:textSize="14sp" android:layout_marginTop="14dp"/>
 <SeekBar android:id="@+id/alphaSlider" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="175"/>
 <Button android:id="@+id/btnStart" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="BẮT ĐẦU DỊCH" android:layout_marginTop="8dp"/><Button android:id="@+id/btnStop" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="DỪNG DỊCH" android:layout_marginTop="8dp"/><Button android:id="@+id/btnUpdate" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="KIỂM TRA CẬP NHẬT OTA" android:layout_marginTop="8dp"/>
 <TextView android:id="@+id/txtStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#BDEBFF" android:layout_marginTop="14dp"/>
-<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Màn hình chỉ được chụp khi bạn cấp quyền. Văn bản OCR được gửi tới Gemini để dịch." android:textColor="#B4C9D8" android:textSize="14sp" android:layout_marginTop="14dp"/>
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Màn hình chỉ được chụp khi bạn cấp quyền. Văn bản OCR và ngữ cảnh liên quan được gửi tới Gemini khi dịch online. Cache và lịch sử lưu riêng trên thiết bị; có thể xóa ở trên." android:textColor="#B4C9D8" android:textSize="14sp" android:layout_marginTop="14dp"/>
 </LinearLayout></ScrollView>
