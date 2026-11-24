@@ -1,40 +1,94 @@
-name: Build & Release APK
+name: Android CI and OTA release
 
 on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Nhập mã phiên bản mới (vd: v1.1)'
-        required: true
-        default: 'v1.1'
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Tải mã nguồn
-        uses: actions/checkout@v4
-
-      - name: Cài đặt Java 21
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
-
-      - name: Cấp quyền chạy Gradle
-        run: chmod +x gradlew
-
-      - name: Build file APK
-        run: ./gradlew assembleDebug
-
-      - name: Đăng lên GitHub Releases
-        uses: softprops/action-gh-release@v2
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build and test
+        run: bash gradlew testDebugUnitTest assembleDebug
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: "Phiên bản ${{ github.event.inputs.version }}"
-          body: "Bản cập nhật tự động build từ GitHub Actions."
-          files: app/build/outputs/apk/debug/app-debug.apk
+          name: debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+  release:
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OTA_KEYSTORE_B64: ${{ secrets.OTA_KEYSTORE_B64 }}
+      OTA_STORE_PASSWORD: ${{ secrets.OTA_STORE_PASSWORD }}
+      OTA_KEY_ALIAS: ${{ secrets.OTA_KEY_ALIAS }}
+      OTA_KEY_PASSWORD: ${{ secrets.OTA_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read version and check release
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -nE 's/^[[:space:]]*versionName = "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' app/build.gradle.kts)
+          test -n "$VERSION"
+          TAG="v$VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-java@v4
+        if: steps.version.outputs.publish == 'true'
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.version.outputs.publish == 'true'
+      - name: Build signed OTA APK
+        if: steps.version.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$OTA_KEYSTORE_B64" || -z "$OTA_STORE_PASSWORD" || -z "$OTA_KEY_ALIAS" || -z "$OTA_KEY_PASSWORD" ]]; then
+            echo "::error::Configure the four OTA signing secrets before publishing. A different signing key breaks in-place updates."
+            exit 1
+          fi
+          umask 077
+          KEYSTORE="$RUNNER_TEMP/ota.jks"
+          trap 'rm -f "$KEYSTORE"' EXIT
+          printf '%s' "$OTA_KEYSTORE_B64" | base64 --decode > "$KEYSTORE"
+          bash gradlew assembleRelease
+          APK=$(find app/build/outputs/apk/release -name '*-unsigned.apk' -print -quit)
+          test -n "$APK"
+          TOOLS=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          test -n "$TOOLS"
+          "$TOOLS" sign --ks "$KEYSTORE" --ks-key-alias "$OTA_KEY_ALIAS" --ks-pass env:OTA_STORE_PASSWORD --key-pass env:OTA_KEY_PASSWORD --out GameScreenTranslator.apk "$APK"
+          "$TOOLS" verify --verbose GameScreenTranslator.apk
+          sha256sum GameScreenTranslator.apk > GameScreenTranslator.apk.sha256
+      - name: Publish new version
+        if: steps.version.outputs.publish == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release create "$TAG" GameScreenTranslator.apk GameScreenTranslator.apk.sha256 --target "$GITHUB_SHA" --title "GameScreenTranslator $TAG" --generate-notes
