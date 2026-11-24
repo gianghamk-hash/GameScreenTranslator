@@ -218,6 +218,7 @@ class OverlayService : Service() {
         view.findViewById<View>(R.id.btnHistory).setOnClickListener {
             if (!isCapturing && translationJob?.isActive != true) tvSubtitle?.apply {
                 text = translator.dialogueHistory.takeLast(4).joinToString("\n\n") { it.second }.ifBlank { "Chưa có lịch sử" }
+                subtitleHidden = false
                 visibility = View.VISIBLE
             }
         }
@@ -357,7 +358,8 @@ class OverlayService : Service() {
                 val stableText = policy.observe(ocrText, android.os.SystemClock.elapsedRealtime(), !isAutoMode) ?: return@launch
                 if (isAutoMode && android.os.SystemClock.elapsedRealtime() < retryAfter) { policy.retry(); return@launch }
                 if (stableText == lastText && lastTranslation.isNotBlank()) {
-                    if (!isAutoMode) showSubtitle(lastTranslation)
+                    if (activeText.isNotBlank() && activeText != stableText) invalidateTranslation()
+                    showSubtitle(lastTranslation)
                     return@launch
                 }
                 enqueueTranslation(stableText, isAutoMode, started)
@@ -411,6 +413,7 @@ class OverlayService : Service() {
                     retryAfter = android.os.SystemClock.elapsedRealtime() + (1000L shl autoFailures)
                     policy.retry()
                     if (lastTranslation.isNotBlank()) showSubtitle(lastTranslation)
+                    else showSubtitle("Đang thử lại dịch…")
                 }
             }
             generation++ // Reject callbacks queued after the final result.
