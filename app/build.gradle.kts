@@ -12,8 +12,8 @@ android {
         applicationId = "com.giang.gametranslator"
         minSdk = 33
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 20000
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -47,4 +47,5 @@ dependencies {
 
     // 2. OkHttp để gọi Gemini API dịch siêu nhanh
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 }

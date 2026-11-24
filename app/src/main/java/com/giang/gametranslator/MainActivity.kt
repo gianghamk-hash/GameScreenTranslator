@@ -30,7 +30,7 @@ import java.io.IOException
 class MainActivity : AppCompatActivity() {
 
     // CẤU HÌNH PHIÊN BẢN & GITHUB REPO CHO OTA
-    private val CURRENT_VERSION = "v1.0"
+    private val CURRENT_VERSION: String get() = packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
     private val GITHUB_USER = "gianghamk-hash"
     private val GITHUB_REPO = "GameScreenTranslator"
 
@@ -46,8 +46,8 @@ class MainActivity : AppCompatActivity() {
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             val serviceIntent = Intent(this, OverlayService::class.java).apply {
-                putExtra("RESULT_CODE", result.resultCode)
-                putExtra("DATA", result.data)
+                putExtra(OverlayService.EXTRA_RESULT_CODE, result.resultCode)
+                putExtra(OverlayService.EXTRA_DATA, result.data)
             }
             startForegroundService(serviceIntent)
             Toast.makeText(this, "Đã bật khung dịch AI!", Toast.LENGTH_SHORT).show()
@@ -63,69 +63,32 @@ class MainActivity : AppCompatActivity() {
         projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val prefs = getSharedPreferences("AppPrefs", MODE_PRIVATE)
 
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(60, 60, 60, 60)
+        setContentView(R.layout.activity_main)
+        edtApiKey = findViewById(R.id.edtApiKey)
+        edtModelName = findViewById(R.id.edtModelName)
+        txtStatus = findViewById(R.id.txtStatus)
+        findViewById<TextView>(R.id.txtVersion).text = "PHIÊN BẢN $CURRENT_VERSION"
+        edtApiKey.setText(prefs.getString("API_KEY", ""))
+        edtModelName.setText(prefs.getString("MODEL_NAME", "gemini-3.5-flash-lite"))
+        val style = findViewById<android.widget.Spinner>(R.id.styleSpinner)
+        style.adapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, GameStyle.entries.map { it.label })
+        style.setSelection(GameStyle.entries.indexOfFirst { it.name == prefs.getString("STYLE", "") }.coerceAtLeast(0))
+        val size = findViewById<android.widget.SeekBar>(R.id.sizeSlider)
+        size.progress = prefs.getInt("SUBTITLE_SIZE", 18) - 12
+        val alpha = findViewById<android.widget.SeekBar>(R.id.alphaSlider)
+        alpha.progress = prefs.getInt("SUBTITLE_ALPHA", 204) - 80
+        findViewById<Button>(R.id.btnStart).setOnClickListener {
+            prefs.edit().putString("STYLE", GameStyle.entries[style.selectedItemPosition].name)
+                .putInt("SUBTITLE_SIZE", size.progress + 12).putInt("SUBTITLE_ALPHA", alpha.progress + 80).apply()
+            saveSettings()
+            checkPermissionsAndStart()
         }
-
-        val txtTitle = TextView(this).apply {
-            text = "Game Screen Translator ($CURRENT_VERSION)"
-            textSize = 20f
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 40)
+        findViewById<Button>(R.id.btnStop).setOnClickListener {
+            stopService(Intent(this, OverlayService::class.java))
+            txtStatus.text = "Đã dừng dịch"
         }
-
-        edtApiKey = EditText(this).apply {
-            hint = "Dán Gemini API Key (AQ...)"
-            setText(prefs.getString("API_KEY", ""))
-            isSingleLine = true
-        }
-
-        edtModelName = EditText(this).apply {
-            hint = "Tên Model (vd: gemini-3.5-flash-lite)"
-            setText(prefs.getString("MODEL_NAME", "gemini-3.5-flash-lite"))
-            isSingleLine = true
-        }
-
-        val btnStart = Button(this).apply {
-            text = "BẬT KHUNG DỊCH AI"
-            textSize = 16f
-            setOnClickListener {
-                saveSettings()
-                checkPermissionsAndStart()
-            }
-        }
-
-        val btnStop = Button(this).apply {
-            text = "TẮT KHUNG DỊCH"
-            textSize = 16f
-            setOnClickListener {
-                stopService(Intent(this@MainActivity, OverlayService::class.java))
-                Toast.makeText(this@MainActivity, "Đã tắt khung dịch", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        val btnUpdate = Button(this).apply {
-            text = "KIỂM TRA CẬP NHẬT (OTA)"
-            textSize = 15f
-            setOnClickListener { checkForOtaUpdate() }
-        }
-
-        txtStatus = TextView(this).apply {
-            text = ""
-            gravity = Gravity.CENTER
-            setPadding(0, 30, 0, 0)
-        }
-
-        layout.addView(txtTitle)
-        layout.addView(edtApiKey)
-        layout.addView(edtModelName)
-        layout.addView(btnStart)
-        layout.addView(btnStop)
-        layout.addView(btnUpdate)
-        layout.addView(txtStatus)
-        setContentView(layout)
+        findViewById<Button>(R.id.btnUpdate).setOnClickListener { checkForOtaUpdate() }
+        checkForOtaUpdate()
     }
 
     private fun saveSettings() {
@@ -142,11 +105,15 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        if (!edtModelName.text.toString().trim().matches(Regex("(models/)?[A-Za-z0-9._-]+"))) {
+            Toast.makeText(this, "Tên model không hợp lệ", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
         ) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
-            return
+            // Notification permission is optional for starting a foreground service.
         }
 
         if (!Settings.canDrawOverlays(this)) {
@@ -195,7 +162,7 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         runOnUiThread {
-                            if (latestTag != CURRENT_VERSION && apkUrl.isNotEmpty()) {
+                            if (VersionOrder.isNewer(latestTag, CURRENT_VERSION) && apkUrl.isNotEmpty()) {
                                 txtStatus.text = "Có bản mới: $latestTag"
                                 AlertDialog.Builder(this@MainActivity)
                                     .setTitle("Có bản cập nhật mới ($latestTag)")
@@ -239,12 +206,17 @@ class MainActivity : AppCompatActivity() {
                     }
                     try {
                         val apkFile = File(cacheDir, "update.apk")
+                        require(it.body != null) { "APK rỗng" }
                         it.body?.byteStream()?.use { input ->
                             FileOutputStream(apkFile).use { output ->
                                 input.copyTo(output)
                             }
                         }
 
+                        val archive = packageManager.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+                        val installed = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+                        require(archive != null && archive.packageName == packageName && archive.longVersionCode > installed.longVersionCode) { "APK không đúng ứng dụng hoặc không mới hơn" }
+                        require(archive.signingInfo?.apkContentsSigners?.toSet() == installed.signingInfo?.apkContentsSigners?.toSet() && archive.signingInfo != null) { "Chữ ký APK không khớp bản đã cài" }
                         val apkUri = FileProvider.getUriForFile(
                             this@MainActivity,
                             "$packageName.provider",

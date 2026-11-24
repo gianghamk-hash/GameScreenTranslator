@@ -1,4 +1,4 @@
-package com.example.gamescreentranslator
+package com.giang.gametranslator
 
 import android.graphics.Bitmap
 import android.graphics.Rect
@@ -50,10 +50,10 @@ class OcrProcessor {
                         merged.ifBlank { null }
                     }
 
-                    cont.resume(paragraphs.joinToString("\n"))
+                    if (cont.isActive) cont.resume(paragraphs.joinToString("\n"))
                 }
                 .addOnFailureListener { e ->
-                    cont.resumeWithException(e)
+                    if (cont.isActive) cont.resumeWithException(e)
                 }
         }
 
