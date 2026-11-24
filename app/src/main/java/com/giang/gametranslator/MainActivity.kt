@@ -105,11 +105,15 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        if (!edtModelName.text.toString().trim().matches(Regex("(models/)?[A-Za-z0-9._-]+"))) {
+            Toast.makeText(this, "Tên model không hợp lệ", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
         ) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
-            return
+            // Notification permission is optional for starting a foreground service.
         }
 
         if (!Settings.canDrawOverlays(this)) {

@@ -139,9 +139,9 @@ class GeminiTranslator(
             }))
             put("generationConfig", JSONObject().apply {
                 put("maxOutputTokens", 768)
-                put("thinkingConfig", JSONObject().apply {
-                    put("thinkingLevel", "minimal")
-                })
+                if (model.removePrefix("models/").startsWith("gemini-3")) {
+                    put("thinkingConfig", JSONObject().apply { put("thinkingLevel", "minimal") })
+                }
             })
         }
     }
@@ -163,6 +163,7 @@ class GeminiTranslator(
     }
 
     private fun updateContext(original: String, translated: String) {
+        if (contextWindow.lastOrNull() == (original to translated)) return
         if (contextWindow.size >= 5) contextWindow.removeFirst()
         contextWindow.addLast(original to translated)
 

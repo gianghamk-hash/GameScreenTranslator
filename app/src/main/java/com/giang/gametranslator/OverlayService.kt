@@ -157,6 +157,7 @@ class OverlayService : Service() {
         tvSubtitle = view.findViewById(R.id.tvSubtitle)
         btnTranslate = view.findViewById(R.id.btnTranslate)
         btnAuto = view.findViewById(R.id.btnAuto)
+        btnAuto?.alpha = 0.55f
 
         val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -196,7 +197,10 @@ class OverlayService : Service() {
             }
         }
         view.findViewById<View>(R.id.btnHistory).setOnClickListener {
-            if (!isCapturing) tvSubtitle?.text = translator.dialogueHistory.takeLast(4).joinToString("\n\n") { it.second }.ifBlank { "Chưa có lịch sử" }
+            if (!isCapturing) tvSubtitle?.apply {
+                text = translator.dialogueHistory.takeLast(4).joinToString("\n\n") { it.second }.ifBlank { "Chưa có lịch sử" }
+                visibility = View.VISIBLE
+            }
         }
         view.findViewById<View>(R.id.btnHide).setOnClickListener {
             tvSubtitle?.visibility = if (tvSubtitle?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
@@ -265,6 +269,11 @@ class OverlayService : Service() {
         val image = try { reader.acquireLatestImage() } catch (_: IllegalStateException) { null } ?: return
         isCapturing = true
 
+        val overlayBounds = overlayView?.let { view ->
+            val pos = IntArray(2)
+            view.getLocationOnScreen(pos)
+            Rect(pos[0], pos[1], pos[0] + view.width, pos[1] + view.height)
+        }
         serviceScope.launch {
             val started = android.os.SystemClock.elapsedRealtime()
             var fullBitmap: Bitmap? = null
@@ -300,7 +309,11 @@ class OverlayService : Service() {
 
             try {
                 // 2. Nếu là Auto-Translate và vùng thoại chưa đổi chữ -> bỏ qua luôn (< 2ms)
-                val changed = withContext(Dispatchers.Default) { diffDetector.hasRegionChanged(captured, customCropRect) }
+                val changed = withContext(Dispatchers.Default) {
+                    // Ignore our own floating controls/subtitle so OCR cannot translate itself.
+                    overlayBounds?.let { bounds -> android.graphics.Canvas(captured).drawRect(bounds, android.graphics.Paint().apply { color = android.graphics.Color.BLACK }) }
+                    diffDetector.hasRegionChanged(captured, customCropRect)
+                }
                 if (isAutoMode && !changed && started - lastScan < 1500L) {
                     return@launch
                 }
@@ -335,7 +348,7 @@ class OverlayService : Service() {
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e
-            } catch (_: Exception) { if (!isAutoMode) tvSubtitle?.text = "Không đọc được màn hình. Thử lại." } finally {
+            } catch (_: Exception) { if (!isAutoMode) tvSubtitle?.apply { text = "Không đọc được màn hình. Thử lại."; visibility = View.VISIBLE } } finally {
                 if (!captured.isRecycled) captured.recycle()
                 isCapturing = false
             }
