@@ -26,6 +26,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build and test
         run: bash gradlew testDebugUnitTest assembleDebug assembleRelease assembleDebugAndroidTest
+      - name: Enable hardware acceleration for emulator
+        run: |
+          test -e /dev/kvm
+          sudo chmod 666 /dev/kvm
       - name: Run startup test on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -94,6 +98,11 @@ jobs:
           "$TOOLS" sign --ks "$KEYSTORE" --ks-key-alias "$OTA_KEY_ALIAS" --ks-pass env:OTA_STORE_PASSWORD --key-pass env:OTA_KEY_PASSWORD --out GameScreenTranslator.apk "$APK"
           "$TOOLS" verify --verbose GameScreenTranslator.apk
           sha256sum GameScreenTranslator.apk > GameScreenTranslator.apk.sha256
+      - name: Enable hardware acceleration for release smoke test
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          test -e /dev/kvm
+          sudo chmod 666 /dev/kvm
       - name: Smoke test signed release APK
         if: steps.version.outputs.publish == 'true'
         uses: reactivecircus/android-emulator-runner@v2
