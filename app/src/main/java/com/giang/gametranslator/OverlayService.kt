@@ -17,6 +17,7 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -97,7 +98,11 @@ class OverlayService : Service() {
     private var cropMode = 0
     private var lastLatency = 0L
     private val projectionCallback = object : MediaProjection.Callback() {
-        override fun onStop() { stopSelf() }
+        override fun onStop() {
+            if (prefs.getString("CAPTURE_STATUS", "") == "running")
+                setCaptureStatus("Phiên chụp màn hình đã dừng. Bấm Bắt đầu dịch để cấp quyền lại.")
+            stopSelf()
+        }
     }
     private var customCropRect: Rect? = null // Gán tọa độ khung crop của bạn vào đây
 
@@ -127,17 +132,29 @@ class OverlayService : Service() {
         if (resultCode == Activity.RESULT_OK && data != null && mediaProjection == null) {
             // Android 14+ requires the user's capture consent before starting a
             // mediaProjection foreground service. onCreate runs before this intent arrives.
-            startForegroundServiceNotification()
-            setupOverlayView()
-            restoreZone()
-            translator.prepareOffline { ready -> Toast.makeText(this, if (ready) "Dịch offline đã sẵn sàng" else "Chưa tải được model offline (cần Wi-Fi)", Toast.LENGTH_SHORT).show() }
-            val projectionManager =
-                getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            mediaProjection = projectionManager.getMediaProjection(resultCode, data)
-            mediaProjection?.registerCallback(projectionCallback, android.os.Handler(mainLooper))
-            setupVirtualDisplay()
+            try {
+                startForegroundServiceNotification()
+                val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+                    ?: error("Không lấy được quyền chụp màn hình")
+                mediaProjection?.registerCallback(projectionCallback, android.os.Handler(mainLooper))
+                setupVirtualDisplay()
+                checkNotNull(virtualDisplay) { "Không tạo được màn hình dịch" }
+                check(Settings.canDrawOverlays(this)) { "Chưa có quyền xuất hiện trên cùng" }
+                setupOverlayView()
+                restoreZone()
+                setCaptureStatus("running")
+                translator.prepareOffline { ready -> Toast.makeText(this, if (ready) "Dịch offline đã sẵn sàng" else "Chưa tải được model offline (cần Wi-Fi)", Toast.LENGTH_SHORT).show() }
+            } catch (e: Exception) {
+                setCaptureStatus("Không bật được khung dịch: ${e.message ?: e.javaClass.simpleName}")
+                stopSelf()
+            }
         } else if (mediaProjection == null) stopSelf()
         return START_NOT_STICKY
+    }
+
+    private fun setCaptureStatus(status: String) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString("CAPTURE_STATUS", status).apply()
     }
 
     private fun initScreenMetrics() {
@@ -543,6 +560,6 @@ class OverlayService : Service() {
         imageReader?.close()
         mediaProjection?.unregisterCallback(projectionCallback)
         mediaProjection?.stop()
-        overlayView?.let { windowManager.removeView(it) }
+        overlayView?.let { runCatching { windowManager.removeView(it) } }
     }
 }

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
+import android.media.projection.MediaProjectionConfig
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -50,8 +51,16 @@ class MainActivity : AppCompatActivity() {
                 putExtra(OverlayService.EXTRA_DATA, result.data)
             }
             startForegroundService(serviceIntent)
-            Toast.makeText(this, "Đã bật khung dịch AI!", Toast.LENGTH_SHORT).show()
-            moveTaskToBack(true)
+            android.os.Handler(mainLooper).postDelayed({
+                val status = getSharedPreferences("AppPrefs", MODE_PRIVATE).getString("CAPTURE_STATUS", "")
+                if (status == "running") {
+                    txtStatus.text = "Đã bật khung dịch AI"
+                    moveTaskToBack(true)
+                } else {
+                    txtStatus.text = status?.takeIf { it.isNotBlank() }
+                        ?: "Không khởi động được khung dịch. Kiểm tra quyền xuất hiện trên cùng."
+                }
+            }, 1800)
         } else {
             Toast.makeText(this, "Bạn cần cấp quyền chụp màn hình để dịch game!", Toast.LENGTH_SHORT).show()
         }
@@ -139,7 +148,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
+        // OCR and draggable controls use whole-display coordinates.
+        val captureIntent = if (android.os.Build.VERSION.SDK_INT >= 34)
+            projectionManager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+        else projectionManager.createScreenCaptureIntent()
+        getSharedPreferences("AppPrefs", MODE_PRIVATE).edit().remove("CAPTURE_STATUS").apply()
+        screenCaptureLauncher.launch(captureIntent)
     }
 
     // ==================== HỆ THỐNG CẬP NHẬT OTA QUA GITHUB RELEASES ====================
