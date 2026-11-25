@@ -54,7 +54,7 @@
                 android:background="@color/surface_elevated"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
-                android:text="v2.3"
+                android:text="v2.4"
                 android:textColor="@color/accent_cyan"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -222,16 +222,18 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:hint="Gemini API Key (để trống nếu chỉ dùng Offline)"
+                    android:hint="Gemini API Key (dán 1 hoặc nhiều key, mỗi dòng 1 key để chống 429)"
                     app:boxStrokeColor="@color/accent_blue"
-                    app:endIconMode="password_toggle">
+                    app:endIconMode="clear_text">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/edtApiKey"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="textPassword"
-                        android:singleLine="true"
+                        android:gravity="top"
+                        android:inputType="textMultiLine|textNoSuggestions"
+                        android:maxLines="3"
+                        android:minLines="1"
                         android:textColor="@color/text_primary" />
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -608,7 +610,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- CARD 4: PHÍM TẮT TAY CẦM & CHẾ ĐỘ 0% NHÁY -->
+        <!-- CARD 4: PHÍM TẮT TAY CẦM, CHẾ ĐỘ 0% NHÁY & ỔN ĐỊNH HỆ THỐNG -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -628,7 +630,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="4. Phím tắt Tay cầm &amp; Chế độ Đè Sub 0% nháy"
+                    android:text="4. Phím tắt Tay cầm &amp; Độ ổn định hệ thống"
                     android:textColor="@color/accent_cyan"
                     android:textSize="14sp"
                     android:textStyle="bold" />
@@ -752,10 +754,22 @@
                     android:text="BẬT DỊCH VỤ PHÍM TAY CẦM (TRỢ NĂNG)"
                     android:textSize="12.5sp"
                     app:cornerRadius="10dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnBatteryOpt"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="8dp"
+                    android:text="BẬT CHỐNG TẮT NỀN (MIỄN TỐI ƯU PIN)"
+                    android:textColor="@color/accent_amber"
+                    android:textSize="12.5sp"
+                    app:cornerRadius="10dp"
+                    app:strokeColor="@color/accent_amber" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- CARD 5: LỊCH SỬ HỘI THOẠI & CẬP NHẬT OTA -->
+        <!-- CARD 5: LỊCH SỬ HỘI THOẠI, NHẬT KÝ CHẨN ĐOÁN & OTA -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -797,6 +811,18 @@
                     android:text="XEM LỊCH SỬ HỘI THOẠI"
                     android:textSize="13sp"
                     app:cornerRadius="10dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnViewLogs"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="8dp"
+                    android:text="NHẬT KÝ CHẨN ĐOÁN (DEBUG LOG)"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12.5sp"
+                    app:cornerRadius="10dp"
+                    app:strokeColor="@color/stroke_subtle" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnUpdate"

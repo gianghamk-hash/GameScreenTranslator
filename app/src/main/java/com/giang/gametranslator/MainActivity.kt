@@ -1,6 +1,7 @@
 package com.giang.gametranslator
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -12,6 +13,7 @@ import android.graphics.drawable.GradientDrawable
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.TypedValue
 import android.widget.EditText
@@ -76,11 +78,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sliderBgAlpha: Slider
     private lateinit var chipGroupColor: ChipGroup
 
-    // Gamepad & 0% Flicker
+    // Gamepad & Stability
     private lateinit var switchManualTriggerOnly: MaterialSwitch
     private lateinit var chipGroupHotkeySub: ChipGroup
     private lateinit var chipGroupHotkeyFull: ChipGroup
     private lateinit var btnEnableGamepadService: MaterialButton
+    private lateinit var btnBatteryOpt: MaterialButton
 
     private lateinit var txtStatus: TextView
     private lateinit var txtVersionBadge: TextView
@@ -107,10 +110,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "2.3"
+            val vName = info.versionName ?: "2.4"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v2.3"
+            "v2.4"
         }
     }
 
@@ -131,6 +134,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshGamepadServiceButton()
+        refreshBatteryOptButton()
     }
 
     private fun bindViews() {
@@ -168,6 +172,7 @@ class MainActivity : AppCompatActivity() {
         chipGroupHotkeySub = findViewById(R.id.chipGroupHotkeySub)
         chipGroupHotkeyFull = findViewById(R.id.chipGroupHotkeyFull)
         btnEnableGamepadService = findViewById(R.id.btnEnableGamepadService)
+        btnBatteryOpt = findViewById(R.id.btnBatteryOpt)
 
         txtStatus = findViewById(R.id.txtStatus)
 
@@ -193,13 +198,77 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
+        btnBatteryOpt.setOnClickListener { requestIgnoreBatteryOptimizations() }
+
         findViewById<MaterialButton>(R.id.btnViewHistory).setOnClickListener {
             showDialogueHistoryDialog()
+        }
+
+        findViewById<MaterialButton>(R.id.btnViewLogs).setOnClickListener {
+            showDiagnosticLogsDialog()
         }
 
         findViewById<MaterialButton>(R.id.btnUpdate).setOnClickListener {
             checkForOtaUpdate(silent = false)
         }
+    }
+
+    @SuppressLint("BatteryLife")
+    private fun requestIgnoreBatteryOptimizations() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (pm.isIgnoringBatteryOptimizations(packageName)) {
+            Toast.makeText(this, "App đã được miễn tối ưu hóa pin (chạy nền ổn định)!", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (_: Exception) {
+                Toast.makeText(this, "Hãy vào Cài đặt → Pin → chọn Không giới hạn cho GameScreenTranslator", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun refreshBatteryOptButton() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val ignoring = pm.isIgnoringBatteryOptimizations(packageName)
+        if (ignoring) {
+            btnBatteryOpt.text = "✓ ĐANG BẬT CHỐNG TẮT NỀN (KHÔNG GIỚI HẠN PIN)"
+            btnBatteryOpt.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+            btnBatteryOpt.strokeColor = ContextCompat.getColorStateList(this, R.color.accent_green)
+        } else {
+            btnBatteryOpt.text = "BẬT CHỐNG TẮT NỀN (MIỄN TỐI ƯU PIN)"
+            btnBatteryOpt.setTextColor(ContextCompat.getColor(this, R.color.accent_amber))
+            btnBatteryOpt.strokeColor = ContextCompat.getColorStateList(this, R.color.accent_amber)
+        }
+    }
+
+    private fun showDiagnosticLogsDialog() {
+        val logs = DiagnosticLogStore.getAll(this)
+        if (logs.isEmpty()) {
+            Toast.makeText(this, "Chưa có nhật ký sự kiện nào (app đang chạy sạch)!", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val fullText = logs.joinToString("\n") { it.formatLine() }
+        AlertDialog.Builder(this)
+            .setTitle("Nhật ký chẩn đoán (${logs.size}/30)")
+            .setMessage(fullText)
+            .setPositiveButton("Copy toàn bộ") { _, _ ->
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("DiagnosticLog", fullText))
+                Toast.makeText(this, "Đã copy nhật ký chẩn đoán!", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Xóa log") { _, _ ->
+                DiagnosticLogStore.clear(this)
+                Toast.makeText(this, "Đã xóa nhật ký chẩn đoán", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Đóng", null)
+            .show()
     }
 
     private fun isGamepadAccessibilityEnabled(): Boolean {
@@ -542,7 +611,7 @@ class MainActivity : AppCompatActivity() {
     private fun checkPermissionsAndStart() {
         val s = collectSettingsFromUi()
 
-        if (s.translationMode == TranslationMode.ONLINE && s.apiKey.isEmpty()) {
+        if (s.translationMode == TranslationMode.ONLINE && s.apiKeys().isEmpty()) {
             Toast.makeText(this, "Vui lòng dán Gemini API Key hoặc chuyển sang chế độ Offline!", Toast.LENGTH_LONG).show()
             return
         }
@@ -552,7 +621,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (s.translationMode == TranslationMode.HYBRID && s.apiKey.isEmpty() && !isOfflineDownloaded) {
+        if (s.translationMode == TranslationMode.HYBRID && s.apiKeys().isEmpty() && !isOfflineDownloaded) {
             Toast.makeText(this, "Hãy nhập Gemini API Key hoặc tải gói dịch Offline!", Toast.LENGTH_LONG).show()
             return
         }

@@ -103,6 +103,13 @@ data class TranslatorSettings(
     val coverEngSub: Boolean
         get() = subtitlePositionMode == SubtitlePositionMode.COVER_CROP
 
+    fun apiKeys(): List<String> =
+        apiKey
+            .split("\n", ",", ";")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
     fun bgAlphaInt(): Int =
         ((subtitleBgAlphaPct.coerceIn(40, 100) / 100f) * 255f).toInt().coerceIn(100, 255)
 

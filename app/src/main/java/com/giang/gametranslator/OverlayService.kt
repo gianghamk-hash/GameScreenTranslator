@@ -6,10 +6,12 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -28,8 +30,10 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
+import android.os.Process
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -45,6 +49,7 @@ import android.widget.Toast
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -71,35 +76,73 @@ class OverlayService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
+    private val imageReaderLock = Any()
 
-    private val handler = Handler(Looper.getMainLooper())
+    // Luồng UI chính & luồng nền riêng cho xử lý Bitmap / Pixel / Smart Color (không bao giờ làm lag UI)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private lateinit var captureThread: HandlerThread
+    private lateinit var captureHandler: Handler
+
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private val deduplicator = TextDeduplicator()
-    private val translationEngine = TranslationEngine()
+    private lateinit var translationEngine: TranslationEngine
 
+    @Volatile
     private var settings = TranslatorSettings()
+    @Volatile
     private var cropLeftPct = 0.08f
+    @Volatile
     private var cropTopPct = 0.72f
+    @Volatile
     private var cropRightPct = 0.92f
+    @Volatile
     private var cropBottomPct = 0.95f
 
-    // Smart Color Match chống rung: chỉ đổi màu khi chênh lệch RGB >= 36 và đổi màu tại chỗ (không updateViewLayout)
+    // Smart Color Match chống rung
+    @Volatile
     private var sampledBgColor: Int? = null
+    @Volatile
     private var sampledIsLightBg: Boolean = false
     private var lastSampledR = -1
     private var lastSampledG = -1
     private var lastSampledB = -1
 
+    // Watchdog tự hồi phục VirtualDisplay
+    private var consecutiveNullFrames = 0
+    private var lastRecoveryMs = 0L
+    private var recoveryWindowStartMs = 0L
+    private var recoveryCountInWindow = 0
+    @Volatile
+    private var needsWakeCheck = false
+
     private var emptyFrameCount = 0
-    private var isOcrRunning = false
+    private val isOcrRunning = AtomicBoolean(false)
+    @Volatile
     private var isRunning = false
+    @Volatile
     private var isPaused = false
+    @Volatile
     private var isSelectingRegion = false
+    @Volatile
     private var isPeeking = false
+    @Volatile
     private var isFullScreenBusy = false
+    @Volatile
     private var hasActiveSubtitle = false
     private var lastDisplayedText = ""
     private var translationSequence = 0L
+
+    private val screenWakeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_USER_PRESENT && isRunning) {
+                needsWakeCheck = true
+                DiagnosticLogStore.info(this@OverlayService, "Màn hình vừa mở khóa → kích hoạt kiểm tra Watchdog")
+                if (!settings.manualTriggerOnly) {
+                    scheduleNextCapture()
+                }
+            }
+        }
+    }
 
     private val fadeBubbleRunnable = Runnable {
         if (::floatingButton.isInitialized && settings.autoFadeBubble && quickMenuView == null) {
@@ -120,7 +163,7 @@ class OverlayService : Service() {
             val modalOpen = isSelectingRegion || quickMenuView != null ||
                 fullScreenOverlayView != null || historyOverlayView != null ||
                 profilePickerView != null || isFullScreenBusy
-            if (!isPaused && !modalOpen && !isOcrRunning && !isPeeking) {
+            if (!isPaused && !modalOpen && !isOcrRunning.get() && !isPeeking) {
                 triggerCaptureCycle(forceManual = false)
             } else {
                 scheduleNextCapture()
@@ -130,11 +173,23 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        translationEngine = TranslationEngine(applicationContext)
+        captureThread = HandlerThread("GameTranslatorCapture", Process.THREAD_PRIORITY_BACKGROUND).apply {
+            start()
+        }
+        captureHandler = Handler(captureThread.looper)
+
         startForegroundNotification()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         reloadSettingsFromStore()
         setupOverlayWindow()
         setupFloatingBubble()
+
+        try {
+            registerReceiver(screenWakeReceiver, IntentFilter(Intent.ACTION_USER_PRESENT))
+        } catch (_: Exception) {
+        }
+        DiagnosticLogStore.info(this, "OverlayService khởi tạo sẵn sàng (Background Capture Thread)")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -181,14 +236,17 @@ class OverlayService : Service() {
             isRunning = true
             isServiceRunning = true
             isPaused = false
-            handler.removeCallbacks(captureRunnable)
+            consecutiveNullFrames = 0
+            DiagnosticLogStore.info(this, "Bắt đầu dịch game • Chế độ: ${settings.translationMode.label}, Vị trí: ${settings.subtitlePositionMode.label}")
+            mainHandler.removeCallbacks(captureRunnable)
             if (!settings.manualTriggerOnly) {
-                handler.postDelayed(captureRunnable, 500)
+                mainHandler.postDelayed(captureRunnable, 500)
             } else {
                 showOverlayMessage("Chế độ 0% nháy: Chạm ⚡ hoặc bấm ${settings.hotkeyTranslate.label} để dịch")
             }
             scheduleBubbleFade()
         } else if (!isRunning) {
+            DiagnosticLogStore.error(this, "Không nhận được quyền MediaProjection từ Activity")
             showOverlayMessage("Chưa nhận được quyền chụp màn hình!")
         }
         return START_NOT_STICKY
@@ -197,8 +255,9 @@ class OverlayService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         if (!isRunning) return
+        DiagnosticLogStore.info(this, "Phát hiện xoay màn hình → tự động dựng lại VirtualDisplay")
         closeFullScreenOverlay()
-        handler.postDelayed({
+        mainHandler.postDelayed({
             recreateVirtualDisplay()
             applyOverlayStyleAndPosition()
             deduplicator.resetFrameSignature()
@@ -236,7 +295,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v2.3 đang chạy")
+            .setContentTitle("Game Screen Translator v2.4 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
@@ -244,7 +303,7 @@ class OverlayService : Service() {
         startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
     }
 
-    // 1. Khung hiển thị phụ đề Việt-Sub (3 vị trí: Sát trên Eng-Sub 0% nháy, Đè kín Eng-Sub, Nổi dưới)
+    // 1. Khung hiển thị phụ đề Việt-Sub
     private fun setupOverlayWindow() {
         val density = resources.displayMetrics.density
         overlayBgDrawable = GradientDrawable().apply {
@@ -275,7 +334,6 @@ class OverlayService : Service() {
         applyOverlayStyleAndPosition(addIfNeeded = true)
     }
 
-    // Cập nhật màu nền & màu chữ tại chỗ (KHÔNG gọi updateViewLayout -> 0% rung khung!)
     private fun applyOverlayColorsInPlace() {
         if (!::overlayTextView.isInitialized || !::overlayBgDrawable.isInitialized) return
         val density = resources.displayMetrics.density
@@ -316,7 +374,6 @@ class OverlayService : Service() {
 
         when (settings.subtitlePositionMode) {
             SubtitlePositionMode.ABOVE_CROP -> {
-                // Đặt hộp Việt-Sub sát ngay trên mép vùng Eng-Sub (không chồng lên vùng OCR -> 0% nhấp nháy!)
                 overlayTextView.minHeight = 0
                 overlayTextView.maxWidth = widthPx
                 overlayParams.width = widthPx
@@ -326,7 +383,6 @@ class OverlayService : Service() {
                     overlayParams.x = leftPx
                     overlayParams.y = (screenH - topPx) + gapPx
                 } else {
-                    // Nếu vùng Eng-Sub nằm sát đỉnh màn hình -> đặt ngay sát phía dưới
                     overlayParams.gravity = Gravity.TOP or Gravity.START
                     overlayParams.x = leftPx
                     overlayParams.y = bottomPx + gapPx
@@ -353,7 +409,11 @@ class OverlayService : Service() {
         }
 
         if (addIfNeeded) {
-            windowManager.addView(overlayTextView, overlayParams)
+            try {
+                windowManager.addView(overlayTextView, overlayParams)
+            } catch (e: Exception) {
+                DiagnosticLogStore.error(this, "Không thể gắn Overlay phụ đề: ${e.message}")
+            }
         } else if (overlayTextView.isAttachedToWindow) {
             try {
                 windowManager.updateViewLayout(overlayTextView, overlayParams)
@@ -362,7 +422,7 @@ class OverlayService : Service() {
         }
     }
 
-    // Lấy mẫu màu viền ngoài vùng thoại (chống rung: chỉ cập nhật khi màu đổi >= 36 đơn vị RGB)
+    // Chạy trên background thread (captureHandler) để lấy mẫu màu viền hộp thoại
     private fun sampleSmartBackgroundColor(bitmap: Bitmap) {
         if (!settings.smartColorMatch) return
         val w = bitmap.width
@@ -401,7 +461,6 @@ class OverlayService : Service() {
         val medG = greens[12]
         val medB = blues[12]
 
-        // Bỏ qua biến động ánh sáng/hiệu ứng nhỏ để khung phụ đề không bao giờ bị rung màu
         if (lastSampledR >= 0) {
             val delta = abs(medR - lastSampledR) + abs(medG - lastSampledG) + abs(medB - lastSampledB)
             if (delta < 36) return
@@ -416,12 +475,12 @@ class OverlayService : Service() {
         sampledBgColor = Color.argb(alpha, medR, medG, medB)
         sampledIsLightBg = luma > 165f
 
-        handler.post { applyOverlayColorsInPlace() }
+        mainHandler.post { applyOverlayColorsInPlace() }
     }
 
-    // 2. Nút bong bóng 🎯 / ⚡ với tính năng tự làm mờ sau 4s không chạm
+    // 2. Nút bong bóng 🎯 / ⚡ với tính năng tự làm mờ
     private fun wakeBubble() {
-        handler.removeCallbacks(fadeBubbleRunnable)
+        mainHandler.removeCallbacks(fadeBubbleRunnable)
         if (::floatingButton.isInitialized) {
             floatingButton.animate()
                 .alpha(1f)
@@ -433,9 +492,9 @@ class OverlayService : Service() {
     }
 
     private fun scheduleBubbleFade() {
-        handler.removeCallbacks(fadeBubbleRunnable)
+        mainHandler.removeCallbacks(fadeBubbleRunnable)
         if (settings.autoFadeBubble) {
-            handler.postDelayed(fadeBubbleRunnable, 4000L)
+            mainHandler.postDelayed(fadeBubbleRunnable, 4000L)
         } else {
             wakeBubble()
         }
@@ -479,7 +538,7 @@ class OverlayService : Service() {
 
         val longPressRunnable = Runnable {
             longPressTriggered = true
-            handler.removeCallbacks(singleTapRunnable)
+            mainHandler.removeCallbacks(singleTapRunnable)
             openQuickMenuOverlay()
         }
 
@@ -492,15 +551,15 @@ class OverlayService : Service() {
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                     longPressTriggered = false
-                    handler.postDelayed(longPressRunnable, 450)
+                    mainHandler.postDelayed(longPressRunnable, 450)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - initialTouchX
                     val dy = event.rawY - initialTouchY
                     if (abs(dx) > 12 || abs(dy) > 12) {
-                        handler.removeCallbacks(longPressRunnable)
-                        handler.removeCallbacks(singleTapRunnable)
+                        mainHandler.removeCallbacks(longPressRunnable)
+                        mainHandler.removeCallbacks(singleTapRunnable)
                     }
                     params.x = initialX + dx.toInt()
                     params.y = initialY + dy.toInt()
@@ -511,18 +570,18 @@ class OverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    handler.removeCallbacks(longPressRunnable)
+                    mainHandler.removeCallbacks(longPressRunnable)
                     val dx = abs(event.rawX - initialTouchX)
                     val dy = abs(event.rawY - initialTouchY)
                     if (!longPressTriggered && dx < 15 && dy < 15 && event.action == MotionEvent.ACTION_UP) {
                         val now = System.currentTimeMillis()
                         if (now - lastTapTime <= 280L) {
-                            handler.removeCallbacks(singleTapRunnable)
+                            mainHandler.removeCallbacks(singleTapRunnable)
                             lastTapTime = 0L
                             triggerFullScreenTranslate()
                         } else {
                             lastTapTime = now
-                            handler.postDelayed(singleTapRunnable, 280L)
+                            mainHandler.postDelayed(singleTapRunnable, 280L)
                         }
                     }
                     scheduleBubbleFade()
@@ -532,7 +591,11 @@ class OverlayService : Service() {
             }
         }
 
-        windowManager.addView(floatingButton, params)
+        try {
+            windowManager.addView(floatingButton, params)
+        } catch (e: Exception) {
+            DiagnosticLogStore.error(this, "Không thể gắn nút nổi 🎯: ${e.message}")
+        }
     }
 
     private fun updateBubbleAppearance() {
@@ -624,7 +687,7 @@ class OverlayService : Service() {
             SettingsStore.save(this, settings)
             updateBubbleAppearance()
             if (settings.manualTriggerOnly) {
-                handler.removeCallbacks(captureRunnable)
+                mainHandler.removeCallbacks(captureRunnable)
                 Toast.makeText(this, "Đã bật 0% nháy: Chạm ⚡ hoặc bấm ${settings.hotkeyTranslate.label} để dịch", Toast.LENGTH_SHORT).show()
             } else {
                 scheduleNextCapture()
@@ -679,7 +742,11 @@ class OverlayService : Service() {
         }
 
         quickMenuView = container
-        windowManager.addView(container, params)
+        try {
+            windowManager.addView(container, params)
+        } catch (_: Exception) {
+            quickMenuView = null
+        }
     }
 
     private fun closeQuickMenuOverlay() {
@@ -779,7 +846,11 @@ class OverlayService : Service() {
         }
 
         profilePickerView = container
-        windowManager.addView(container, params)
+        try {
+            windowManager.addView(container, params)
+        } catch (_: Exception) {
+            profilePickerView = null
+        }
     }
 
     private fun closeProfilePickerOverlay() {
@@ -794,9 +865,9 @@ class OverlayService : Service() {
         }
     }
 
-    // ==================== QUÉT THỦ CÔNG (CHẾ ĐỘ 0% NHÁY / PHÍM TAY CẦM) ====================
+    // ==================== QUÉT THỦ CÔNG ====================
     private fun triggerManualScan() {
-        if (!isRunning || isSelectingRegion || isFullScreenBusy || isOcrRunning || isPeeking) return
+        if (!isRunning || isSelectingRegion || isFullScreenBusy || isOcrRunning.get() || isPeeking) return
         closeQuickMenuOverlay()
         closeHistoryOverlay()
         closeProfilePickerOverlay()
@@ -804,7 +875,7 @@ class OverlayService : Service() {
         triggerCaptureCycle(forceManual = true)
     }
 
-    // ==================== DỊCH TOÀN MÀN HÌNH SIÊU TỐC ====================
+    // ==================== DỊCH TOÀN MÀN HÌNH SIÊU TỐC (BACKGROUND THREAD) ====================
     private data class FullScreenBlock(
         val rect: RectF,
         val originalText: String,
@@ -813,9 +884,11 @@ class OverlayService : Service() {
 
     private fun triggerFullScreenTranslate() {
         if (isFullScreenBusy || isSelectingRegion) return
-        if (imageReader == null) {
-            Toast.makeText(this, "Chưa sẵn sàng chụp màn hình!", Toast.LENGTH_SHORT).show()
-            return
+        synchronized(imageReaderLock) {
+            if (imageReader == null) {
+                Toast.makeText(this, "Chưa sẵn sàng chụp màn hình!", Toast.LENGTH_SHORT).show()
+                return
+            }
         }
 
         closeQuickMenuOverlay()
@@ -827,142 +900,134 @@ class OverlayService : Service() {
         val startTimeMs = System.currentTimeMillis()
         val prevOverlayVis = overlayTextView.visibility
 
-        // Xả khung cũ trong buffer trước khi ẩn overlay
-        imageReader?.acquireLatestImage()?.close()
+        drainImageReaderSafely()
         overlayTextView.visibility = View.INVISIBLE
         floatingButton.visibility = View.INVISIBLE
 
-        handler.postDelayed({
-            val image = imageReader?.acquireLatestImage()
-            floatingButton.visibility = View.VISIBLE
-            if (prevOverlayVis == View.VISIBLE && hasActiveSubtitle) {
-                overlayTextView.visibility = View.VISIBLE
+        captureHandler.postDelayed({
+            val acquired = acquireFullBitmapSafely()
+            mainHandler.post {
+                floatingButton.visibility = View.VISIBLE
+                if (prevOverlayVis == View.VISIBLE && hasActiveSubtitle) {
+                    overlayTextView.visibility = View.VISIBLE
+                }
             }
 
-            if (image == null) {
+            if (acquired == null) {
                 isFullScreenBusy = false
-                Toast.makeText(this, "Không lấy được khung hình, hãy thử lại!", Toast.LENGTH_SHORT).show()
+                maybeRecoverVirtualDisplay("Toàn màn hình không nhận được frame")
+                mainHandler.post {
+                    Toast.makeText(this, "Đang làm mới luồng chụp, bạn hãy thử bấm lại sau 1 giây!", Toast.LENGTH_SHORT).show()
+                }
                 return@postDelayed
             }
 
-            try {
-                val planes = image.planes
-                val buffer = planes[0].buffer
-                val pixelStride = planes[0].pixelStride
-                val rowStride = planes[0].rowStride
-                val rowPadding = rowStride - pixelStride * image.width
+            val (fullBitmap, imgW, imgH) = acquired
+            val (screenW, screenH) = getScreenBounds()
+            val scaleX = screenW / imgW.toFloat()
+            val scaleY = screenH / imgH.toFloat()
 
-                val fullBitmap = Bitmap.createBitmap(
-                    image.width + rowPadding / pixelStride,
-                    image.height,
-                    Bitmap.Config.ARGB_8888
-                )
-                fullBitmap.copyPixelsFromBuffer(buffer)
-
-                val imgW = image.width.toFloat()
-                val imgH = image.height.toFloat()
-                val (screenW, screenH) = getScreenBounds()
-                val scaleX = screenW / imgW
-                val scaleY = screenH / imgH
-
+            mainHandler.post {
                 showFullScreenOverlayView(emptyList(), "⚡ Đang quét & dịch toàn màn hình...")
+            }
 
-                val inputImage = InputImage.fromBitmap(fullBitmap, 0)
-                textRecognizer.process(inputImage)
-                    .addOnSuccessListener { visionText ->
-                        fullBitmap.recycle()
+            val inputImage = InputImage.fromBitmap(fullBitmap, 0)
+            textRecognizer.process(inputImage)
+                .addOnSuccessListener { visionText ->
+                    fullBitmap.recycle()
 
-                        val rawBlocks = mutableListOf<FullScreenBlock>()
-                        val letterRegex = Regex("[A-Za-z]{2,}")
+                    val rawBlocks = mutableListOf<FullScreenBlock>()
+                    val letterRegex = Regex("[A-Za-z]{2,}")
 
-                        for (block in visionText.textBlocks) {
-                            val box = block.boundingBox ?: continue
-                            val clean = block.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
-                            if (clean.length < 2 || !letterRegex.containsMatchIn(clean)) continue
+                    for (block in visionText.textBlocks) {
+                        val box = block.boundingBox ?: continue
+                        val clean = block.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
+                        if (clean.length < 2 || !letterRegex.containsMatchIn(clean)) continue
 
-                            val rect = RectF(
-                                (box.left * scaleX).coerceIn(0f, screenW.toFloat()),
-                                (box.top * scaleY).coerceIn(0f, screenH.toFloat()),
-                                (box.right * scaleX).coerceIn(0f, screenW.toFloat()),
-                                (box.bottom * scaleY).coerceIn(0f, screenH.toFloat())
-                            )
-                            rawBlocks.add(FullScreenBlock(rect, clean, clean))
-                            if (rawBlocks.size >= 26) break
-                        }
+                        val rect = RectF(
+                            (box.left * scaleX).coerceIn(0f, screenW.toFloat()),
+                            (box.top * scaleY).coerceIn(0f, screenH.toFloat()),
+                            (box.right * scaleX).coerceIn(0f, screenW.toFloat()),
+                            (box.bottom * scaleY).coerceIn(0f, screenH.toFloat())
+                        )
+                        rawBlocks.add(FullScreenBlock(rect, clean, clean))
+                        if (rawBlocks.size >= 26) break
+                    }
 
-                        if (rawBlocks.isEmpty()) {
-                            isFullScreenBusy = false
+                    if (rawBlocks.isEmpty()) {
+                        isFullScreenBusy = false
+                        mainHandler.post {
                             closeFullScreenOverlay()
                             Toast.makeText(this, "Không tìm thấy chữ tiếng Anh trên màn hình!", Toast.LENGTH_SHORT).show()
-                            return@addOnSuccessListener
                         }
+                        return@addOnSuccessListener
+                    }
 
-                        val cacheNs = "FS|${settings.translationMode.name}|${settings.customGlossary.hashCode()}"
-                        val uncachedIndices = mutableListOf<Int>()
-                        val uncachedTexts = mutableListOf<String>()
+                    val cacheNs = "FS|${settings.translationMode.name}|${settings.customGlossary.hashCode()}"
+                    val uncachedIndices = mutableListOf<Int>()
+                    val uncachedTexts = mutableListOf<String>()
 
-                        rawBlocks.forEachIndexed { idx, blk ->
-                            val cached = deduplicator.getCached(blk.originalText, cacheNs)
-                            if (cached != null) {
-                                blk.translatedText = cached
-                            } else {
-                                uncachedIndices.add(idx)
-                                uncachedTexts.add(blk.originalText)
-                            }
+                    rawBlocks.forEachIndexed { idx, blk ->
+                        val cached = deduplicator.getCached(blk.originalText, cacheNs)
+                        if (cached != null) {
+                            blk.translatedText = cached
+                        } else {
+                            uncachedIndices.add(idx)
+                            uncachedTexts.add(blk.originalText)
                         }
+                    }
 
-                        if (uncachedTexts.isEmpty()) {
-                            val elapsed = System.currentTimeMillis() - startTimeMs
-                            isFullScreenBusy = false
+                    if (uncachedTexts.isEmpty()) {
+                        val elapsed = System.currentTimeMillis() - startTimeMs
+                        isFullScreenBusy = false
+                        mainHandler.post {
                             showFullScreenOverlayView(
                                 rawBlocks,
                                 "⚡ ${rawBlocks.size} khối (${elapsed}ms • Cache) • Chạm bất kỳ đâu để đóng"
                             )
-                            return@addOnSuccessListener
                         }
+                        return@addOnSuccessListener
+                    }
 
-                        translationEngine.translateBatch(
-                            texts = uncachedTexts,
-                            settings = settings,
-                            onSuccess = { translations, usedOffline ->
-                                isFullScreenBusy = false
-                                translations.forEachIndexed { i, vi ->
-                                    val targetIdx = uncachedIndices[i]
-                                    rawBlocks[targetIdx].translatedText = vi
-                                    deduplicator.putCached(rawBlocks[targetIdx].originalText, cacheNs, vi)
-                                }
-                                val elapsed = System.currentTimeMillis() - startTimeMs
-                                val modeTag = if (usedOffline) "Offline" else "AI"
-                                handler.post {
-                                    if (fullScreenOverlayView != null) {
-                                        showFullScreenOverlayView(
-                                            rawBlocks,
-                                            "⚡ ${rawBlocks.size} khối (${elapsed}ms • $modeTag) • Chạm bất kỳ đâu để đóng"
-                                        )
-                                    }
-                                }
-                            },
-                            onError = { err ->
-                                isFullScreenBusy = false
-                                handler.post {
-                                    closeFullScreenOverlay()
-                                    Toast.makeText(this, err, Toast.LENGTH_LONG).show()
+                    translationEngine.translateBatch(
+                        texts = uncachedTexts,
+                        settings = settings,
+                        onSuccess = { translations, usedOffline ->
+                            isFullScreenBusy = false
+                            translations.forEachIndexed { i, vi ->
+                                val targetIdx = uncachedIndices[i]
+                                rawBlocks[targetIdx].translatedText = vi
+                                deduplicator.putCached(rawBlocks[targetIdx].originalText, cacheNs, vi)
+                            }
+                            val elapsed = System.currentTimeMillis() - startTimeMs
+                            val modeTag = if (usedOffline) "Offline" else "AI"
+                            mainHandler.post {
+                                if (fullScreenOverlayView != null) {
+                                    showFullScreenOverlayView(
+                                        rawBlocks,
+                                        "⚡ ${rawBlocks.size} khối (${elapsed}ms • $modeTag) • Chạm bất kỳ đâu để đóng"
+                                    )
                                 }
                             }
-                        )
-                    }
-                    .addOnFailureListener { e ->
-                        fullBitmap.recycle()
-                        isFullScreenBusy = false
+                        },
+                        onError = { err ->
+                            isFullScreenBusy = false
+                            mainHandler.post {
+                                closeFullScreenOverlay()
+                                Toast.makeText(this, err, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    )
+                }
+                .addOnFailureListener { e ->
+                    fullBitmap.recycle()
+                    isFullScreenBusy = false
+                    DiagnosticLogStore.error(this, "Lỗi OCR toàn màn hình: ${e.message}")
+                    mainHandler.post {
                         closeFullScreenOverlay()
                         Toast.makeText(this, "Lỗi OCR toàn màn hình: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
-            } catch (e: Exception) {
-                isFullScreenBusy = false
-                closeFullScreenOverlay()
-            } finally {
-                image.close()
-            }
+                }
         }, 40L)
     }
 
@@ -990,7 +1055,11 @@ class OverlayService : Service() {
         )
 
         fullScreenOverlayView = view
-        windowManager.addView(view, params)
+        try {
+            windowManager.addView(view, params)
+        } catch (_: Exception) {
+            fullScreenOverlayView = null
+        }
     }
 
     private fun closeFullScreenOverlay() {
@@ -1153,7 +1222,11 @@ class OverlayService : Service() {
         }
 
         historyOverlayView = root
-        windowManager.addView(root, params)
+        try {
+            windowManager.addView(root, params)
+        } catch (_: Exception) {
+            historyOverlayView = null
+        }
     }
 
     private fun closeHistoryOverlay() {
@@ -1168,7 +1241,7 @@ class OverlayService : Service() {
         }
     }
 
-    // 3. Mở lớp phủ vẽ khung chọn vùng Eng-Sub
+    // 3. Khoanh vùng Eng-Sub
     private fun openCropSelectionOverlay() {
         if (isSelectingRegion) return
         closeQuickMenuOverlay()
@@ -1206,7 +1279,12 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         )
-        windowManager.addView(selectionView, params)
+        try {
+            windowManager.addView(selectionView, params)
+        } catch (_: Exception) {
+            selectionView = null
+            isSelectingRegion = false
+        }
     }
 
     private fun closeCropSelectionOverlay() {
@@ -1222,9 +1300,14 @@ class OverlayService : Service() {
         isSelectingRegion = false
     }
 
+    // ==================== MEDIA PROJECTION & WATCHDOG TỰ HỒI PHỤC ====================
     private fun setupMediaProjection(resultCode: Int, data: Intent) {
-        virtualDisplay?.release()
-        imageReader?.close()
+        synchronized(imageReaderLock) {
+            virtualDisplay?.release()
+            virtualDisplay = null
+            imageReader?.close()
+            imageReader = null
+        }
         mediaProjection?.stop()
 
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -1233,129 +1316,213 @@ class OverlayService : Service() {
         mediaProjection?.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
                 super.onStop()
+                DiagnosticLogStore.warn(this@OverlayService, "Hệ thống đã thu hồi MediaProjection → dừng OverlayService")
                 stopSelf()
             }
-        }, handler)
+        }, mainHandler)
 
         recreateVirtualDisplay()
     }
 
     private fun recreateVirtualDisplay() {
         val projection = mediaProjection ?: return
-        virtualDisplay?.release()
-        imageReader?.close()
+        synchronized(imageReaderLock) {
+            try {
+                virtualDisplay?.release()
+                imageReader?.close()
+            } catch (_: Exception) {
+            }
 
-        val (screenW, screenH) = getScreenBounds()
-        val width = (screenW / 2).coerceAtLeast(320)
-        val height = (screenH / 2).coerceAtLeast(240)
-        val density = resources.displayMetrics.densityDpi
+            val (screenW, screenH) = getScreenBounds()
+            val width = (screenW / 2).coerceAtLeast(320)
+            val height = (screenH / 2).coerceAtLeast(240)
+            val density = resources.displayMetrics.densityDpi
 
-        imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-        virtualDisplay = projection.createVirtualDisplay(
-            "GameTranslatorDisplay",
-            width, height, density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader?.surface, null, null
-        )
+            try {
+                imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+                virtualDisplay = projection.createVirtualDisplay(
+                    "GameTranslatorDisplay",
+                    width, height, density,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    imageReader?.surface, null, null
+                )
+                consecutiveNullFrames = 0
+                needsWakeCheck = false
+            } catch (e: Exception) {
+                DiagnosticLogStore.error(this, "Lỗi dựng VirtualDisplay: ${e.message}")
+            }
+        }
+    }
+
+    private fun maybeRecoverVirtualDisplay(reason: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastRecoveryMs < 8_000L) return
+        if (now - recoveryWindowStartMs > 60_000L) {
+            recoveryWindowStartMs = now
+            recoveryCountInWindow = 0
+        }
+        if (recoveryCountInWindow >= 4) return
+
+        lastRecoveryMs = now
+        recoveryCountInWindow++
+        DiagnosticLogStore.warn(this, "Watchdog tự hồi phục VirtualDisplay ($reason)")
+        mainHandler.post {
+            if (isRunning) {
+                recreateVirtualDisplay()
+            }
+        }
+    }
+
+    private fun drainImageReaderSafely() {
+        synchronized(imageReaderLock) {
+            try {
+                imageReader?.acquireLatestImage()?.close()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun acquireFullBitmapSafely(): Triple<Bitmap, Int, Int>? {
+        synchronized(imageReaderLock) {
+            val reader = imageReader ?: return null
+            val image = try {
+                reader.acquireLatestImage()
+            } catch (e: IllegalStateException) {
+                maybeRecoverVirtualDisplay("ImageReader IllegalState: ${e.message}")
+                return null
+            } ?: return null
+
+            return try {
+                val planes = image.planes
+                val buffer = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride = planes[0].rowStride
+                val rowPadding = rowStride - pixelStride * image.width
+
+                val fullBitmap = Bitmap.createBitmap(
+                    image.width + rowPadding / pixelStride,
+                    image.height,
+                    Bitmap.Config.ARGB_8888
+                )
+                fullBitmap.copyPixelsFromBuffer(buffer)
+                Triple(fullBitmap, image.width, image.height)
+            } catch (e: Exception) {
+                DiagnosticLogStore.error(this, "Lỗi đọc buffer ảnh: ${e.message}")
+                null
+            } finally {
+                image.close()
+            }
+        }
     }
 
     private fun scheduleNextCapture() {
         if (!isRunning || settings.manualTriggerOnly) return
-        // Ở chế độ Đè trực tiếp (COVER_CROP) khi thoại đang ổn định, giãn nhịp peek lên 1500ms để giảm chớp rõ rệt;
-        // ở chế độ Sát trên (ABOVE_CROP) / Nổi dưới (BOTTOM_FLOATING), quét tốc độ tối đa với 0% nhấp nháy!
         val delay = if (settings.coverEngSub && hasActiveSubtitle) {
             max(settings.scanIntervalMs, 1500).toLong()
         } else {
             settings.scanIntervalMs.toLong()
         }
-        handler.removeCallbacks(captureRunnable)
-        handler.postDelayed(captureRunnable, delay)
+        mainHandler.removeCallbacks(captureRunnable)
+        mainHandler.postDelayed(captureRunnable, delay)
     }
 
     private fun triggerCaptureCycle(forceManual: Boolean) {
         val needPeek = settings.coverEngSub && overlayTextView.visibility == View.VISIBLE
         if (needPeek) {
             isPeeking = true
-            // Xả khung hình cũ trong ImageReader để tránh dính khung còn chứa chữ Việt
-            imageReader?.acquireLatestImage()?.close()
+            drainImageReaderSafely()
             overlayTextView.visibility = View.INVISIBLE
-            handler.postDelayed({
+            captureHandler.postDelayed({
                 isPeeking = false
                 if (!isRunning || isSelectingRegion || isFullScreenBusy) {
                     if (!forceManual) scheduleNextCapture()
                     return@postDelayed
                 }
-                captureAndProcessFrame(restoreOverlayImmediately = true, forceManual = forceManual)
+                captureAndProcessFrameOnBackground(restoreOverlayImmediately = true, forceManual = forceManual)
             }, 34L)
         } else {
-            captureAndProcessFrame(restoreOverlayImmediately = false, forceManual = forceManual)
+            captureHandler.post {
+                if (!isRunning || isSelectingRegion || isFullScreenBusy) {
+                    if (!forceManual) scheduleNextCapture()
+                    return@post
+                }
+                captureAndProcessFrameOnBackground(restoreOverlayImmediately = false, forceManual = forceManual)
+            }
         }
     }
 
-    private fun captureAndProcessFrame(restoreOverlayImmediately: Boolean, forceManual: Boolean) {
-        val image = imageReader?.acquireLatestImage()
-        if (restoreOverlayImmediately && !isSelectingRegion && hasActiveSubtitle) {
-            overlayTextView.visibility = View.VISIBLE
+    // Chạy 100% trên captureHandler (Background Thread) → UI mượt tuyệt đối, không lag game
+    private fun captureAndProcessFrameOnBackground(restoreOverlayImmediately: Boolean, forceManual: Boolean) {
+        val acquired = acquireFullBitmapSafely()
+        if (restoreOverlayImmediately) {
+            mainHandler.post {
+                if (!isSelectingRegion && hasActiveSubtitle && ::overlayTextView.isInitialized) {
+                    overlayTextView.visibility = View.VISIBLE
+                }
+            }
         }
 
-        if (image == null) {
+        if (acquired == null) {
+            consecutiveNullFrames++
+            if (forceManual || needsWakeCheck || (!hasActiveSubtitle && consecutiveNullFrames >= 12)) {
+                maybeRecoverVirtualDisplay("Không nhận được frame (${consecutiveNullFrames} lần)")
+            }
             if (!forceManual) scheduleNextCapture()
             return
         }
 
+        consecutiveNullFrames = 0
+        needsWakeCheck = false
+
+        val (fullBitmap, imgW, imgH) = acquired
+        var croppedBitmap: Bitmap? = null
         try {
-            val planes = image.planes
-            val buffer = planes[0].buffer
-            val pixelStride = planes[0].pixelStride
-            val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * image.width
+            val x = (imgW * cropLeftPct).toInt().coerceIn(0, imgW - 10)
+            val y = (imgH * cropTopPct).toInt().coerceIn(0, imgH - 10)
+            val w = (imgW * (cropRightPct - cropLeftPct)).toInt().coerceIn(10, imgW - x)
+            val h = (imgH * (cropBottomPct - cropTopPct)).toInt().coerceIn(10, imgH - y)
 
-            val fullBitmap = Bitmap.createBitmap(
-                image.width + rowPadding / pixelStride,
-                image.height,
-                Bitmap.Config.ARGB_8888
-            )
-            fullBitmap.copyPixelsFromBuffer(buffer)
-
-            val x = (image.width * cropLeftPct).toInt().coerceIn(0, image.width - 10)
-            val y = (image.height * cropTopPct).toInt().coerceIn(0, image.height - 10)
-            val w = (image.width * (cropRightPct - cropLeftPct)).toInt().coerceIn(10, image.width - x)
-            val h = (image.height * (cropBottomPct - cropTopPct)).toInt().coerceIn(10, image.height - y)
-
-            val croppedBitmap = Bitmap.createBitmap(fullBitmap, x, y, w, h)
-            fullBitmap.recycle()
-
-            if (!forceManual && settings.antiDuplicate && deduplicator.isFrameUnchanged(croppedBitmap)) {
-                croppedBitmap.recycle()
-                scheduleNextCapture()
-                return
-            }
-
-            sampleSmartBackgroundColor(croppedBitmap)
-
-            isOcrRunning = true
-            val inputImage = InputImage.fromBitmap(croppedBitmap, 0)
-
-            textRecognizer.process(inputImage)
-                .addOnSuccessListener { visionText ->
-                    val rawText = visionText.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
-                    croppedBitmap.recycle()
-                    isOcrRunning = false
-                    handleRecognizedText(rawText, forceManual)
-                    if (!forceManual) scheduleNextCapture()
-                }
-                .addOnFailureListener { e ->
-                    croppedBitmap.recycle()
-                    isOcrRunning = false
-                    showOverlayMessage("Lỗi OCR: ${e.message}")
-                    if (!forceManual) scheduleNextCapture()
-                }
+            croppedBitmap = Bitmap.createBitmap(fullBitmap, x, y, w, h)
         } catch (e: Exception) {
-            isOcrRunning = false
+            DiagnosticLogStore.error(this, "Lỗi cắt ảnh vùng thoại: ${e.message}")
             if (!forceManual) scheduleNextCapture()
+            return
         } finally {
-            image.close()
+            fullBitmap.recycle()
         }
+
+        if (!forceManual && settings.antiDuplicate && deduplicator.isFrameUnchanged(croppedBitmap)) {
+            croppedBitmap.recycle()
+            scheduleNextCapture()
+            return
+        }
+
+        sampleSmartBackgroundColor(croppedBitmap)
+
+        if (!isOcrRunning.compareAndSet(false, true)) {
+            croppedBitmap.recycle()
+            if (!forceManual) scheduleNextCapture()
+            return
+        }
+
+        val bitmapForOcr = croppedBitmap
+        val inputImage = InputImage.fromBitmap(bitmapForOcr, 0)
+
+        textRecognizer.process(inputImage)
+            .addOnSuccessListener { visionText ->
+                val rawText = visionText.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
+                bitmapForOcr.recycle()
+                isOcrRunning.set(false)
+                handleRecognizedText(rawText, forceManual)
+                if (!forceManual) scheduleNextCapture()
+            }
+            .addOnFailureListener { e ->
+                bitmapForOcr.recycle()
+                isOcrRunning.set(false)
+                DiagnosticLogStore.error(this, "Lỗi ML Kit OCR: ${e.message}")
+                showOverlayMessage("Lỗi OCR: ${e.message}")
+                if (!forceManual) scheduleNextCapture()
+            }
     }
 
     private fun handleRecognizedText(rawText: String, forceManual: Boolean) {
@@ -1366,7 +1533,7 @@ class OverlayService : Service() {
                 translationEngine.cancelActiveRequest()
                 hasActiveSubtitle = false
                 lastDisplayedText = ""
-                handler.post { overlayTextView.visibility = View.GONE }
+                mainHandler.post { overlayTextView.visibility = View.GONE }
             }
             return
         }
@@ -1419,7 +1586,7 @@ class OverlayService : Service() {
     }
 
     private fun showOverlayMessage(text: String) {
-        handler.post {
+        mainHandler.post {
             if (!isSelectingRegion && ::overlayTextView.isInitialized) {
                 if (lastDisplayedText == text && overlayTextView.visibility == View.VISIBLE) {
                     return@post
@@ -1436,16 +1603,36 @@ class OverlayService : Service() {
         super.onDestroy()
         isRunning = false
         isServiceRunning = false
-        handler.removeCallbacksAndMessages(null)
-        translationEngine.close()
+        DiagnosticLogStore.info(this, "OverlayService đã tắt gọn")
+        try {
+            unregisterReceiver(screenWakeReceiver)
+        } catch (_: Exception) {
+        }
+        mainHandler.removeCallbacksAndMessages(null)
+        if (::captureHandler.isInitialized) {
+            captureHandler.removeCallbacksAndMessages(null)
+        }
+        if (::captureThread.isInitialized) {
+            captureThread.quitSafely()
+        }
+        if (::translationEngine.isInitialized) {
+            translationEngine.close()
+        }
         textRecognizer.close()
         closeQuickMenuOverlay()
         closeHistoryOverlay()
         closeProfilePickerOverlay()
         closeFullScreenOverlay()
         closeCropSelectionOverlay()
-        virtualDisplay?.release()
-        imageReader?.close()
+        synchronized(imageReaderLock) {
+            try {
+                virtualDisplay?.release()
+                imageReader?.close()
+            } catch (_: Exception) {
+            }
+            virtualDisplay = null
+            imageReader = null
+        }
         mediaProjection?.stop()
         if (::overlayTextView.isInitialized && overlayTextView.isAttachedToWindow) {
             try {
