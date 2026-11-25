@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">GameScreenTranslator</string>
+    <string name="accessibility_service_desc">Cho phép GameScreenTranslator nhận phím tắt tay cầm (R3/L3/Select) để dịch thoại hoặc dịch toàn màn hình ngay trong game mà không cần chạm màn hình.</string>
+</resources>

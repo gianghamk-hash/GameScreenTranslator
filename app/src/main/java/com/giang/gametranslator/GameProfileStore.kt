@@ -1,0 +1,131 @@
+package com.giang.gametranslator
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+
+data class GameProfile(
+    val name: String,
+    val translationStyle: TranslationStyle,
+    val customGlossary: String,
+    val coverEngSub: Boolean,
+    val smartColorMatch: Boolean,
+    val manualTriggerOnly: Boolean,
+    val cropLeftPct: Float,
+    val cropTopPct: Float,
+    val cropRightPct: Float,
+    val cropBottomPct: Float
+)
+
+/**
+ * Lưu & chuyển đổi nhanh Profile theo từng tựa game (vùng Eng-Sub, văn phong, tên riêng, chế độ đè sub).
+ */
+object GameProfileStore {
+    private const val PREF_NAME = "GameProfilesPrefs"
+    private const val KEY_PROFILES = "PROFILES_JSON"
+
+    fun listProfiles(context: Context): List<GameProfile> {
+        val raw = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_PROFILES, null) ?: return emptyList()
+        val result = mutableListOf<GameProfile>()
+        try {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                result.add(
+                    GameProfile(
+                        name = o.optString("name", "Game ${i + 1}"),
+                        translationStyle = TranslationStyle.fromName(o.optString("style", null)),
+                        customGlossary = o.optString("glossary", ""),
+                        coverEngSub = o.optBoolean("cover", true),
+                        smartColorMatch = o.optBoolean("smartColor", true),
+                        manualTriggerOnly = o.optBoolean("manual", false),
+                        cropLeftPct = o.optDouble("left", 0.08).toFloat().coerceIn(0f, 0.95f),
+                        cropTopPct = o.optDouble("top", 0.72).toFloat().coerceIn(0f, 0.95f),
+                        cropRightPct = o.optDouble("right", 0.92).toFloat().coerceIn(0.05f, 1f),
+                        cropBottomPct = o.optDouble("bottom", 0.95).toFloat().coerceIn(0.05f, 1f)
+                    )
+                )
+            }
+        } catch (_: Exception) {
+        }
+        return result
+    }
+
+    fun saveFromSettings(context: Context, profileName: String, s: TranslatorSettings) {
+        val cleanName = profileName.trim()
+        if (cleanName.isEmpty()) return
+
+        val current = listProfiles(context).toMutableList()
+        val newProfile = GameProfile(
+            name = cleanName,
+            translationStyle = s.translationStyle,
+            customGlossary = s.customGlossary,
+            coverEngSub = s.coverEngSub,
+            smartColorMatch = s.smartColorMatch,
+            manualTriggerOnly = s.manualTriggerOnly,
+            cropLeftPct = s.cropLeftPct,
+            cropTopPct = s.cropTopPct,
+            cropRightPct = s.cropRightPct,
+            cropBottomPct = s.cropBottomPct
+        )
+        val existingIdx = current.indexOfFirst { it.name.equals(cleanName, ignoreCase = true) }
+        if (existingIdx >= 0) {
+            current[existingIdx] = newProfile
+        } else {
+            current.add(0, newProfile)
+        }
+        persist(context, current)
+        SettingsStore.save(context, s.copy(activeProfileName = cleanName))
+    }
+
+    fun applyProfile(context: Context, profile: GameProfile): TranslatorSettings {
+        val updated = SettingsStore.load(context).copy(
+            activeProfileName = profile.name,
+            translationStyle = profile.translationStyle,
+            customGlossary = profile.customGlossary,
+            coverEngSub = profile.coverEngSub,
+            smartColorMatch = profile.smartColorMatch,
+            manualTriggerOnly = profile.manualTriggerOnly,
+            cropLeftPct = profile.cropLeftPct,
+            cropTopPct = profile.cropTopPct,
+            cropRightPct = profile.cropRightPct,
+            cropBottomPct = profile.cropBottomPct
+        )
+        SettingsStore.save(context, updated)
+        return updated
+    }
+
+    fun deleteProfile(context: Context, profileName: String) {
+        val remaining = listProfiles(context).filterNot { it.name.equals(profileName, ignoreCase = true) }
+        persist(context, remaining)
+        val current = SettingsStore.load(context)
+        if (current.activeProfileName.equals(profileName, ignoreCase = true)) {
+            SettingsStore.save(context, current.copy(activeProfileName = "Mặc định"))
+        }
+    }
+
+    private fun persist(context: Context, list: List<GameProfile>) {
+        val arr = JSONArray()
+        for (p in list) {
+            arr.put(
+                JSONObject().apply {
+                    put("name", p.name)
+                    put("style", p.translationStyle.name)
+                    put("glossary", p.customGlossary)
+                    put("cover", p.coverEngSub)
+                    put("smartColor", p.smartColorMatch)
+                    put("manual", p.manualTriggerOnly)
+                    put("left", p.cropLeftPct.toDouble())
+                    put("top", p.cropTopPct.toDouble())
+                    put("right", p.cropRightPct.toDouble())
+                    put("bottom", p.cropBottomPct.toDouble())
+                }
+            )
+        }
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_PROFILES, arr.toString())
+            .apply()
+    }
+}
