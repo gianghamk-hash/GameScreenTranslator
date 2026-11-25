@@ -78,7 +78,7 @@ enum class GamepadHotkey(val keyCode: Int, val label: String) {
 
 data class TranslatorSettings(
     val apiKey: String = "",
-    val modelName: String = "gemini-2.5-flash-lite",
+    val modelName: String = "gemini-3.5-flash-lite",
     val translationMode: TranslationMode = TranslationMode.HYBRID,
     val translationStyle: TranslationStyle = TranslationStyle.RPG_FANTASY,
     val customGlossary: String = "",
@@ -136,10 +136,10 @@ object SettingsStore {
         val legacyCover = p.getBoolean("COVER_ENG_SUB", false)
         return TranslatorSettings(
             apiKey = p.getString("API_KEY", "")?.trim() ?: "",
-            modelName = p.getString("MODEL_NAME", "gemini-2.5-flash-lite")
+            modelName = p.getString("MODEL_NAME", "gemini-3.5-flash-lite")
                 ?.trim()
-                ?.ifEmpty { "gemini-2.5-flash-lite" }
-                ?: "gemini-2.5-flash-lite",
+                ?.let { if (it.isEmpty() || it == "gemini-2.5-flash-lite") "gemini-3.5-flash-lite" else it }
+                ?: "gemini-3.5-flash-lite",
             translationMode = TranslationMode.fromName(p.getString("TRANSLATION_MODE", null)),
             translationStyle = TranslationStyle.fromName(p.getString("TRANSLATION_STYLE", null)),
             customGlossary = p.getString("CUSTOM_GLOSSARY", "") ?: "",
@@ -166,7 +166,7 @@ object SettingsStore {
     fun save(context: Context, s: TranslatorSettings) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
             .putString("API_KEY", s.apiKey.trim())
-            .putString("MODEL_NAME", s.modelName.trim().ifEmpty { "gemini-2.5-flash-lite" })
+            .putString("MODEL_NAME", s.modelName.trim().ifEmpty { "gemini-3.5-flash-lite" })
             .putString("TRANSLATION_MODE", s.translationMode.name)
             .putString("TRANSLATION_STYLE", s.translationStyle.name)
             .putString("CUSTOM_GLOSSARY", s.customGlossary.trim())

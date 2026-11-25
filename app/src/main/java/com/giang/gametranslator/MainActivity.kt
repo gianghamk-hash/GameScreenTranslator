@@ -110,10 +110,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "2.4"
+            val vName = info.versionName ?: "2.4.1"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v2.4"
+            "v2.4.1"
         }
     }
 
@@ -552,8 +552,8 @@ class MainActivity : AppCompatActivity() {
         val current = SettingsStore.load(this)
         return current.copy(
             apiKey = edtApiKey.text?.toString()?.trim() ?: "",
-            modelName = edtModelName.text?.toString()?.trim()?.ifEmpty { "gemini-2.5-flash-lite" }
-                ?: "gemini-2.5-flash-lite",
+            modelName = edtModelName.text?.toString()?.trim()?.ifEmpty { "gemini-3.5-flash-lite" }
+                ?: "gemini-3.5-flash-lite",
             translationMode = mode,
             translationStyle = style,
             customGlossary = edtGlossary.text?.toString()?.trim() ?: "",

@@ -136,7 +136,7 @@ class TranslationEngine(private val appContext: Context) {
                     settings = settings,
                     keys = keys,
                     triedKeys = emptySet(),
-                    allowThinkingConfig = settings.modelName.contains("2.5"),
+                    allowThinkingConfig = (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
                     allowOfflineFallback = false,
                     onSuccess = onSuccess,
                     onError = onError
@@ -151,7 +151,7 @@ class TranslationEngine(private val appContext: Context) {
                         settings = settings,
                         keys = keys,
                         triedKeys = emptySet(),
-                        allowThinkingConfig = settings.modelName.contains("2.5"),
+                        allowThinkingConfig = (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
                         allowOfflineFallback = true,
                         onSuccess = onSuccess,
                         onError = onError
@@ -188,7 +188,7 @@ class TranslationEngine(private val appContext: Context) {
                     settings = settings,
                     keys = keys,
                     triedKeys = emptySet(),
-                    allowThinkingConfig = settings.modelName.contains("2.5"),
+                    allowThinkingConfig = (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
                     allowOfflineFallback = false,
                     onSuccess = onSuccess,
                     onError = onError
@@ -203,7 +203,7 @@ class TranslationEngine(private val appContext: Context) {
                         settings = settings,
                         keys = keys,
                         triedKeys = emptySet(),
-                        allowThinkingConfig = settings.modelName.contains("2.5"),
+                        allowThinkingConfig = (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
                         allowOfflineFallback = true,
                         onSuccess = onSuccess,
                         onError = onError
