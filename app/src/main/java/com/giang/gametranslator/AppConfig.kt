@@ -39,6 +39,19 @@ enum class TranslationStyle(val label: String, val instruction: String) {
     }
 }
 
+enum class SubtitlePositionMode(val label: String) {
+    ABOVE_CROP("Sát trên Eng-Sub (0% nháy)"),
+    COVER_CROP("Đè kín Eng-Sub"),
+    BOTTOM_FLOATING("Nổi phía dưới (0% nháy)");
+
+    companion object {
+        fun fromName(name: String?, legacyCoverEngSub: Boolean = false): SubtitlePositionMode {
+            entries.firstOrNull { it.name == name }?.let { return it }
+            return if (legacyCoverEngSub) COVER_CROP else ABOVE_CROP
+        }
+    }
+}
+
 enum class SubtitleColor(val colorInt: Int) {
     WHITE(Color.WHITE),
     YELLOW(Color.parseColor("#FFFDE047")),
@@ -69,7 +82,7 @@ data class TranslatorSettings(
     val translationMode: TranslationMode = TranslationMode.HYBRID,
     val translationStyle: TranslationStyle = TranslationStyle.RPG_FANTASY,
     val customGlossary: String = "",
-    val coverEngSub: Boolean = true,
+    val subtitlePositionMode: SubtitlePositionMode = SubtitlePositionMode.ABOVE_CROP,
     val smartColorMatch: Boolean = true,
     val manualTriggerOnly: Boolean = false,
     val autoFadeBubble: Boolean = true,
@@ -87,6 +100,9 @@ data class TranslatorSettings(
     val cropRightPct: Float = 0.92f,
     val cropBottomPct: Float = 0.95f
 ) {
+    val coverEngSub: Boolean
+        get() = subtitlePositionMode == SubtitlePositionMode.COVER_CROP
+
     fun bgAlphaInt(): Int =
         ((subtitleBgAlphaPct.coerceIn(40, 100) / 100f) * 255f).toInt().coerceIn(100, 255)
 
@@ -109,6 +125,8 @@ object SettingsStore {
 
     fun load(context: Context): TranslatorSettings {
         val p = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val savedPosName = p.getString("SUBTITLE_POSITION_MODE", null)
+        val legacyCover = p.getBoolean("COVER_ENG_SUB", false)
         return TranslatorSettings(
             apiKey = p.getString("API_KEY", "")?.trim() ?: "",
             modelName = p.getString("MODEL_NAME", "gemini-2.5-flash-lite")
@@ -118,7 +136,7 @@ object SettingsStore {
             translationMode = TranslationMode.fromName(p.getString("TRANSLATION_MODE", null)),
             translationStyle = TranslationStyle.fromName(p.getString("TRANSLATION_STYLE", null)),
             customGlossary = p.getString("CUSTOM_GLOSSARY", "") ?: "",
-            coverEngSub = p.getBoolean("COVER_ENG_SUB", true),
+            subtitlePositionMode = SubtitlePositionMode.fromName(savedPosName, legacyCover),
             smartColorMatch = p.getBoolean("SMART_COLOR_MATCH", true),
             manualTriggerOnly = p.getBoolean("MANUAL_TRIGGER_ONLY", false),
             autoFadeBubble = p.getBoolean("AUTO_FADE_BUBBLE", true),
@@ -145,6 +163,7 @@ object SettingsStore {
             .putString("TRANSLATION_MODE", s.translationMode.name)
             .putString("TRANSLATION_STYLE", s.translationStyle.name)
             .putString("CUSTOM_GLOSSARY", s.customGlossary.trim())
+            .putString("SUBTITLE_POSITION_MODE", s.subtitlePositionMode.name)
             .putBoolean("COVER_ENG_SUB", s.coverEngSub)
             .putBoolean("SMART_COLOR_MATCH", s.smartColorMatch)
             .putBoolean("MANUAL_TRIGGER_ONLY", s.manualTriggerOnly)

@@ -54,7 +54,7 @@
                 android:background="@color/surface_elevated"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
-                android:text="v2.2"
+                android:text="v2.3"
                 android:textColor="@color/accent_cyan"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -404,7 +404,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- CARD 3: ĐÈ ENG-SUB, TIỆP MÀU & GIAO DIỆN PHỤ ĐỀ -->
+        <!-- CARD 3: VỊ TRÍ PHỤ ĐỀ (CHỐNG NHÁY), TIỆP MÀU & GIAO DIỆN -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -424,28 +424,60 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="3. Đè Eng-Sub, Tiệp màu &amp; Giao diện"
+                    android:text="3. Vị trí Việt-Sub (Chống nháy) &amp; Giao diện"
                     android:textColor="@color/accent_cyan"
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/switchCoverEngSub"
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chipGroupSubPos"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:checked="true"
-                    android:text="Tự động che Eng-Sub game &amp; đè Việt-Sub vào"
-                    android:textColor="@color/text_primary"
-                    android:textSize="13sp" />
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipPosAbove"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Sát trên Eng-Sub (0% nháy)"
+                        android:textColor="@color/accent_green" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipPosCover"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Đè kín Eng-Sub"
+                        android:textColor="@color/text_primary" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipPosBottom"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Nổi dưới màn hình"
+                        android:textColor="@color/text_primary" />
+                </com.google.android.material.chip.ChipGroup>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Khuyên dùng 'Sát trên Eng-Sub' để tự động dịch siêu nhanh mà 0% nhấp nháy. Nếu chọn 'Đè kín Eng-Sub', bật thêm chế độ 0% nháy ở mục 4 sẽ đứng yên tuyệt đối."
+                    android:textColor="@color/text_muted"
+                    android:textSize="11.5sp" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/switchSmartColorMatch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="8dp"
                     android:checked="true"
-                    android:text="Tự động tiệp màu nền hộp thoại game (Smart Color)"
+                    android:text="Tự động tiệp màu nền hộp thoại game (Chống rung)"
                     android:textColor="@color/text_primary"
                     android:textSize="13sp" />
 
@@ -752,7 +784,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="• 1 chạm 🎯 (hoặc ⚡): Khoanh vùng Eng-Sub (hoặc dịch ngay ở chế độ 0% nháy).\n• Chạm đúp 🎯: Dịch toàn màn hình Menu / Kho đồ.\n• Nhấn giữ 🎯: Mở menu nhanh (Đổi Profile, Lịch sử, Đè Sub, 0% nháy)."
+                    android:text="• 1 chạm 🎯 (hoặc ⚡): Khoanh vùng Eng-Sub (hoặc dịch ngay ở chế độ 0% nháy).\n• Chạm đúp 🎯: Dịch toàn màn hình Menu / Kho đồ.\n• Nhấn giữ 🎯: Mở menu nhanh (Đổi vị trí Sub, Profile, Lịch sử, 0% nháy)."
                     android:textColor="@color/text_secondary"
                     android:textSize="12.5sp" />
 

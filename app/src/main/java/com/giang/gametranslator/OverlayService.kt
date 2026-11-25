@@ -58,6 +58,7 @@ class OverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var overlayTextView: TextView
+    private lateinit var overlayBgDrawable: GradientDrawable
     private lateinit var overlayParams: WindowManager.LayoutParams
     private lateinit var floatingButton: TextView
 
@@ -82,9 +83,12 @@ class OverlayService : Service() {
     private var cropRightPct = 0.92f
     private var cropBottomPct = 0.95f
 
-    // Màu nền thông minh lấy mẫu từ hộp thoại game (null = dùng màu mặc định)
+    // Smart Color Match chống rung: chỉ đổi màu khi chênh lệch RGB >= 36 và đổi màu tại chỗ (không updateViewLayout)
     private var sampledBgColor: Int? = null
     private var sampledIsLightBg: Boolean = false
+    private var lastSampledR = -1
+    private var lastSampledG = -1
+    private var lastSampledB = -1
 
     private var emptyFrameCount = 0
     private var isOcrRunning = false
@@ -94,6 +98,7 @@ class OverlayService : Service() {
     private var isPeeking = false
     private var isFullScreenBusy = false
     private var hasActiveSubtitle = false
+    private var lastDisplayedText = ""
     private var translationSequence = 0L
 
     private val fadeBubbleRunnable = Runnable {
@@ -110,7 +115,6 @@ class OverlayService : Service() {
     private val captureRunnable = object : Runnable {
         override fun run() {
             if (!isRunning) return
-            // Chế độ Đè Sub 0% nháy (Thủ công): không tự quét vòng lặp
             if (settings.manualTriggerOnly) return
 
             val modalOpen = isSelectingRegion || quickMenuView != null ||
@@ -137,7 +141,7 @@ class OverlayService : Service() {
         when (intent?.action) {
             SettingsStore.ACTION_RELOAD_SETTINGS -> {
                 reloadSettingsFromStore()
-                sampledBgColor = null
+                resetSampledColor()
                 applyOverlayStyleAndPosition()
                 updateBubbleAppearance()
                 deduplicator.resetFrameSignature()
@@ -147,9 +151,7 @@ class OverlayService : Service() {
                 return START_NOT_STICKY
             }
             SettingsStore.ACTION_MANUAL_SCAN -> {
-                if (isRunning) {
-                    triggerManualScan()
-                }
+                if (isRunning) triggerManualScan()
                 return START_NOT_STICKY
             }
             SettingsStore.ACTION_FULLSCREEN_TRANSLATE -> {
@@ -172,6 +174,7 @@ class OverlayService : Service() {
 
         if (resultCode == Activity.RESULT_OK && data != null) {
             reloadSettingsFromStore()
+            resetSampledColor()
             applyOverlayStyleAndPosition()
             updateBubbleAppearance()
             setupMediaProjection(resultCode, data)
@@ -210,6 +213,14 @@ class OverlayService : Service() {
         cropBottomPct = settings.cropBottomPct
     }
 
+    private fun resetSampledColor() {
+        sampledBgColor = null
+        sampledIsLightBg = false
+        lastSampledR = -1
+        lastSampledG = -1
+        lastSampledB = -1
+    }
+
     private fun getScreenBounds(): Pair<Int, Int> {
         val bounds = windowManager.currentWindowMetrics.bounds
         return bounds.width() to bounds.height()
@@ -225,7 +236,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v2.2 đang chạy")
+            .setContentTitle("Game Screen Translator v2.3 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
@@ -233,12 +244,21 @@ class OverlayService : Service() {
         startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
     }
 
-    // 1. Khung hiển thị phụ đề Việt-Sub (hỗ trợ đè kín Eng-Sub + Smart Color Match)
+    // 1. Khung hiển thị phụ đề Việt-Sub (3 vị trí: Sát trên Eng-Sub 0% nháy, Đè kín Eng-Sub, Nổi dưới)
     private fun setupOverlayWindow() {
+        val density = resources.displayMetrics.density
+        overlayBgDrawable = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 12f * density
+            setColor(settings.bgColorInt())
+            setStroke((1f * density).toInt().coerceAtLeast(1), Color.parseColor("#33FFFFFF"))
+        }
+
         overlayTextView = TextView(this).apply {
             text = "Chạm 🎯 khoanh vùng • Chạm đúp 🎯 dịch toàn màn hình"
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
+            background = overlayBgDrawable
         }
 
         overlayParams = WindowManager.LayoutParams(
@@ -255,63 +275,81 @@ class OverlayService : Service() {
         applyOverlayStyleAndPosition(addIfNeeded = true)
     }
 
-    private fun applyOverlayStyleAndPosition(addIfNeeded: Boolean = false) {
-        if (!::overlayTextView.isInitialized) return
-        val (screenW, screenH) = getScreenBounds()
+    // Cập nhật màu nền & màu chữ tại chỗ (KHÔNG gọi updateViewLayout -> 0% rung khung!)
+    private fun applyOverlayColorsInPlace() {
+        if (!::overlayTextView.isInitialized || !::overlayBgDrawable.isInitialized) return
         val density = resources.displayMetrics.density
 
-        val effectiveBgColor = if (settings.smartColorMatch && settings.coverEngSub && sampledBgColor != null) {
-            sampledBgColor!!
-        } else {
-            settings.bgColorInt()
-        }
-
-        val useDarkText = settings.smartColorMatch && settings.coverEngSub && sampledBgColor != null && sampledIsLightBg
+        val useSmart = settings.smartColorMatch && sampledBgColor != null
+        val effectiveBgColor = if (useSmart) sampledBgColor!! else settings.bgColorInt()
+        val useDarkText = useSmart && sampledIsLightBg
         val effectiveTextColor = if (useDarkText) Color.parseColor("#FF111827") else settings.subtitleColor.colorInt
         val borderColor = if (useDarkText) Color.parseColor("#33000000") else Color.parseColor("#33FFFFFF")
 
-        val bg = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = 12f * density
-            setColor(effectiveBgColor)
-            setStroke((1f * density).toInt().coerceAtLeast(1), borderColor)
-        }
-
-        overlayTextView.background = bg
+        overlayBgDrawable.setColor(effectiveBgColor)
+        overlayBgDrawable.setStroke((1f * density).toInt().coerceAtLeast(1), borderColor)
         overlayTextView.setTextColor(effectiveTextColor)
         if (useDarkText) {
             overlayTextView.setShadowLayer(2f, 0f, 1f, Color.parseColor("#66FFFFFF"))
         } else {
             overlayTextView.setShadowLayer(4f, 1.5f, 1.5f, Color.BLACK)
         }
+    }
+
+    private fun applyOverlayStyleAndPosition(addIfNeeded: Boolean = false) {
+        if (!::overlayTextView.isInitialized) return
+        val (screenW, screenH) = getScreenBounds()
+        val density = resources.displayMetrics.density
+
+        applyOverlayColorsInPlace()
         overlayTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, settings.subtitleFontSizeSp)
         val padH = (14 * density).toInt()
         val padV = (8 * density).toInt()
         overlayTextView.setPadding(padH, padV, padH, padV)
 
-        if (settings.coverEngSub) {
-            val leftPx = (screenW * cropLeftPct).toInt()
-            val topPx = (screenH * cropTopPct).toInt()
-            val widthPx = (screenW * (cropRightPct - cropLeftPct)).toInt().coerceIn(180, screenW)
-            val heightPx = (screenH * (cropBottomPct - cropTopPct)).toInt().coerceIn(56, screenH)
+        val leftPx = (screenW * cropLeftPct).toInt()
+        val topPx = (screenH * cropTopPct).toInt()
+        val bottomPx = (screenH * cropBottomPct).toInt()
+        val widthPx = (screenW * (cropRightPct - cropLeftPct)).toInt().coerceIn(180, screenW)
+        val heightPx = (bottomPx - topPx).coerceIn(56, screenH)
+        val gapPx = (6 * density).toInt()
 
-            overlayTextView.minHeight = heightPx
-            overlayTextView.maxWidth = widthPx
-
-            overlayParams.gravity = Gravity.TOP or Gravity.START
-            overlayParams.x = leftPx
-            overlayParams.y = topPx
-            overlayParams.width = widthPx
-            overlayParams.height = WindowManager.LayoutParams.WRAP_CONTENT
-        } else {
-            overlayTextView.minHeight = 0
-            overlayTextView.maxWidth = (screenW * 0.90f).toInt()
-
-            overlayParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            overlayParams.x = 0
-            overlayParams.y = (36 * density).toInt()
-            overlayParams.width = WindowManager.LayoutParams.WRAP_CONTENT
-            overlayParams.height = WindowManager.LayoutParams.WRAP_CONTENT
+        when (settings.subtitlePositionMode) {
+            SubtitlePositionMode.ABOVE_CROP -> {
+                // Đặt hộp Việt-Sub sát ngay trên mép vùng Eng-Sub (không chồng lên vùng OCR -> 0% nhấp nháy!)
+                overlayTextView.minHeight = 0
+                overlayTextView.maxWidth = widthPx
+                overlayParams.width = widthPx
+                overlayParams.height = WindowManager.LayoutParams.WRAP_CONTENT
+                if (topPx >= (90 * density).toInt()) {
+                    overlayParams.gravity = Gravity.BOTTOM or Gravity.START
+                    overlayParams.x = leftPx
+                    overlayParams.y = (screenH - topPx) + gapPx
+                } else {
+                    // Nếu vùng Eng-Sub nằm sát đỉnh màn hình -> đặt ngay sát phía dưới
+                    overlayParams.gravity = Gravity.TOP or Gravity.START
+                    overlayParams.x = leftPx
+                    overlayParams.y = bottomPx + gapPx
+                }
+            }
+            SubtitlePositionMode.COVER_CROP -> {
+                overlayTextView.minHeight = heightPx
+                overlayTextView.maxWidth = widthPx
+                overlayParams.gravity = Gravity.TOP or Gravity.START
+                overlayParams.x = leftPx
+                overlayParams.y = topPx
+                overlayParams.width = widthPx
+                overlayParams.height = WindowManager.LayoutParams.WRAP_CONTENT
+            }
+            SubtitlePositionMode.BOTTOM_FLOATING -> {
+                overlayTextView.minHeight = 0
+                overlayTextView.maxWidth = (screenW * 0.90f).toInt()
+                overlayParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                overlayParams.x = 0
+                overlayParams.y = (36 * density).toInt()
+                overlayParams.width = WindowManager.LayoutParams.WRAP_CONTENT
+                overlayParams.height = WindowManager.LayoutParams.WRAP_CONTENT
+            }
         }
 
         if (addIfNeeded) {
@@ -324,9 +362,9 @@ class OverlayService : Service() {
         }
     }
 
-    // Lấy mẫu màu viền ngoài của vùng thoại để hộp Việt-Sub tiệp màu với hộp thoại game (Smart Color Match)
+    // Lấy mẫu màu viền ngoài vùng thoại (chống rung: chỉ cập nhật khi màu đổi >= 36 đơn vị RGB)
     private fun sampleSmartBackgroundColor(bitmap: Bitmap) {
-        if (!settings.smartColorMatch || !settings.coverEngSub) return
+        if (!settings.smartColorMatch) return
         val w = bitmap.width
         val h = bitmap.height
         if (w < 12 || h < 12) return
@@ -345,7 +383,6 @@ class OverlayService : Service() {
             idx++
         }
 
-        // 8 điểm mép trên, 8 điểm mép dưới, 4 điểm mép trái, 4 điểm mép phải
         for (i in 0 until 8) {
             val x = ((i + 0.5f) * w / 8f).toInt()
             addSample(x, 2)
@@ -364,15 +401,22 @@ class OverlayService : Service() {
         val medG = greens[12]
         val medB = blues[12]
 
-        val luma = 0.299f * medR + 0.587f * medG + 0.114f * medB
-        val alpha = max(settings.bgAlphaInt(), 238)
-        val newColor = Color.argb(alpha, medR, medG, medB)
-
-        if (sampledBgColor != newColor) {
-            sampledBgColor = newColor
-            sampledIsLightBg = luma > 165f
-            handler.post { applyOverlayStyleAndPosition() }
+        // Bỏ qua biến động ánh sáng/hiệu ứng nhỏ để khung phụ đề không bao giờ bị rung màu
+        if (lastSampledR >= 0) {
+            val delta = abs(medR - lastSampledR) + abs(medG - lastSampledG) + abs(medB - lastSampledB)
+            if (delta < 36) return
         }
+
+        lastSampledR = medR
+        lastSampledG = medG
+        lastSampledB = medB
+
+        val luma = 0.299f * medR + 0.587f * medG + 0.114f * medB
+        val alpha = if (settings.coverEngSub) max(settings.bgAlphaInt(), 240) else settings.bgAlphaInt()
+        sampledBgColor = Color.argb(alpha, medR, medG, medB)
+        sampledIsLightBg = luma > 165f
+
+        handler.post { applyOverlayColorsInPlace() }
     }
 
     // 2. Nút bong bóng 🎯 / ⚡ với tính năng tự làm mờ sau 4s không chạm
@@ -550,6 +594,20 @@ class OverlayService : Service() {
             triggerFullScreenTranslate()
         }
 
+        addMenuItem("📍 Vị trí: ${settings.subtitlePositionMode.label}", "#FF4ADE80") {
+            val nextPos = when (settings.subtitlePositionMode) {
+                SubtitlePositionMode.ABOVE_CROP -> SubtitlePositionMode.COVER_CROP
+                SubtitlePositionMode.COVER_CROP -> SubtitlePositionMode.BOTTOM_FLOATING
+                SubtitlePositionMode.BOTTOM_FLOATING -> SubtitlePositionMode.ABOVE_CROP
+            }
+            settings = settings.copy(subtitlePositionMode = nextPos)
+            SettingsStore.save(this, settings)
+            resetSampledColor()
+            applyOverlayStyleAndPosition()
+            deduplicator.resetFrameSignature()
+            Toast.makeText(this, "Vị trí mới: ${nextPos.label}", Toast.LENGTH_SHORT).show()
+        }
+
         addMenuItem("🎮 Profile: ${settings.activeProfileName} (đổi nhanh)", "#FFA78BFA") {
             openProfilePickerOverlay()
         }
@@ -560,8 +618,7 @@ class OverlayService : Service() {
         }
 
         addMenuItem(
-            if (settings.manualTriggerOnly) "☑ Đang bật: 0% nháy (Bấm phím/nút)" else "☐ Bật 0% nháy (Chỉ dịch khi bấm)",
-            "#FF4ADE80"
+            if (settings.manualTriggerOnly) "☑ Đang bật: 0% nháy (Bấm phím/nút)" else "☐ Bật 0% nháy (Chỉ dịch khi bấm)"
         ) {
             settings = settings.copy(manualTriggerOnly = !settings.manualTriggerOnly)
             SettingsStore.save(this, settings)
@@ -577,14 +634,6 @@ class OverlayService : Service() {
 
         addMenuItem("🎯 Khoanh lại vùng Eng-Sub") {
             openCropSelectionOverlay()
-        }
-
-        addMenuItem(if (settings.coverEngSub) "☑ Đang bật: Đè kín Eng-Sub" else "☐ Đang tắt: Đè kín Eng-Sub") {
-            settings = settings.copy(coverEngSub = !settings.coverEngSub)
-            SettingsStore.save(this, settings)
-            sampledBgColor = null
-            applyOverlayStyleAndPosition()
-            deduplicator.resetFrameSignature()
         }
 
         addMenuItem("⚡ Chế độ: ${settings.translationMode.label} (chạm đổi)") {
@@ -606,6 +655,7 @@ class OverlayService : Service() {
                 if (isPaused) {
                     overlayTextView.visibility = View.GONE
                     hasActiveSubtitle = false
+                    lastDisplayedText = ""
                 }
             }
         }
@@ -619,7 +669,7 @@ class OverlayService : Service() {
         }
 
         val params = WindowManager.LayoutParams(
-            (290 * density).toInt(),
+            (300 * density).toInt(),
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
@@ -672,7 +722,7 @@ class OverlayService : Service() {
 
         if (profiles.isEmpty()) {
             val empty = TextView(this).apply {
-                text = "Chưa có Profile nào.\nHãy mở App chính → bấm 'Lưu Profile' để tạo cấu hình riêng cho từng game."
+                text = "Chưa có Profile nào.\nHãy mở App chính → bấm 'Lưu' để tạo cấu hình riêng cho từng game."
                 setTextColor(Color.parseColor("#FF9BA6B2"))
                 textSize = 13f
                 setPadding(0, (8 * density).toInt(), 0, (12 * density).toInt())
@@ -692,7 +742,7 @@ class OverlayService : Service() {
                         cropTopPct = settings.cropTopPct
                         cropRightPct = settings.cropRightPct
                         cropBottomPct = settings.cropBottomPct
-                        sampledBgColor = null
+                        resetSampledColor()
                         deduplicator.resetSession()
                         translationEngine.clearHistory()
                         applyOverlayStyleAndPosition()
@@ -777,6 +827,8 @@ class OverlayService : Service() {
         val startTimeMs = System.currentTimeMillis()
         val prevOverlayVis = overlayTextView.visibility
 
+        // Xả khung cũ trong buffer trước khi ẩn overlay
+        imageReader?.acquireLatestImage()?.close()
         overlayTextView.visibility = View.INVISIBLE
         floatingButton.visibility = View.INVISIBLE
 
@@ -911,7 +963,7 @@ class OverlayService : Service() {
             } finally {
                 image.close()
             }
-        }, 45L)
+        }, 40L)
     }
 
     private fun showFullScreenOverlayView(blocks: List<FullScreenBlock>, statusBanner: String) {
@@ -1126,6 +1178,7 @@ class OverlayService : Service() {
         isSelectingRegion = true
         overlayTextView.visibility = View.GONE
         hasActiveSubtitle = false
+        lastDisplayedText = ""
 
         selectionView = CropSelectionView(this) { leftPct, topPct, rightPct, bottomPct ->
             cropLeftPct = leftPct
@@ -1133,7 +1186,7 @@ class OverlayService : Service() {
             cropRightPct = rightPct
             cropBottomPct = bottomPct
             SettingsStore.saveCropRegion(this, leftPct, topPct, rightPct, bottomPct)
-            sampledBgColor = null
+            resetSampledColor()
             deduplicator.resetSession()
 
             closeCropSelectionOverlay()
@@ -1208,8 +1261,10 @@ class OverlayService : Service() {
 
     private fun scheduleNextCapture() {
         if (!isRunning || settings.manualTriggerOnly) return
+        // Ở chế độ Đè trực tiếp (COVER_CROP) khi thoại đang ổn định, giãn nhịp peek lên 1500ms để giảm chớp rõ rệt;
+        // ở chế độ Sát trên (ABOVE_CROP) / Nổi dưới (BOTTOM_FLOATING), quét tốc độ tối đa với 0% nhấp nháy!
         val delay = if (settings.coverEngSub && hasActiveSubtitle) {
-            max(settings.scanIntervalMs, 900).toLong()
+            max(settings.scanIntervalMs, 1500).toLong()
         } else {
             settings.scanIntervalMs.toLong()
         }
@@ -1221,6 +1276,8 @@ class OverlayService : Service() {
         val needPeek = settings.coverEngSub && overlayTextView.visibility == View.VISIBLE
         if (needPeek) {
             isPeeking = true
+            // Xả khung hình cũ trong ImageReader để tránh dính khung còn chứa chữ Việt
+            imageReader?.acquireLatestImage()?.close()
             overlayTextView.visibility = View.INVISIBLE
             handler.postDelayed({
                 isPeeking = false
@@ -1229,7 +1286,7 @@ class OverlayService : Service() {
                     return@postDelayed
                 }
                 captureAndProcessFrame(restoreOverlayImmediately = true, forceManual = forceManual)
-            }, 50L)
+            }, 34L)
         } else {
             captureAndProcessFrame(restoreOverlayImmediately = false, forceManual = forceManual)
         }
@@ -1274,7 +1331,6 @@ class OverlayService : Service() {
                 return
             }
 
-            // Lấy mẫu màu nền hộp thoại game để tiệp màu hộp Việt-Sub (Smart Color Match)
             sampleSmartBackgroundColor(croppedBitmap)
 
             isOcrRunning = true
@@ -1309,6 +1365,7 @@ class OverlayService : Service() {
                 deduplicator.onEmptyFrame()
                 translationEngine.cancelActiveRequest()
                 hasActiveSubtitle = false
+                lastDisplayedText = ""
                 handler.post { overlayTextView.visibility = View.GONE }
             }
             return
@@ -1364,6 +1421,10 @@ class OverlayService : Service() {
     private fun showOverlayMessage(text: String) {
         handler.post {
             if (!isSelectingRegion && ::overlayTextView.isInitialized) {
+                if (lastDisplayedText == text && overlayTextView.visibility == View.VISIBLE) {
+                    return@post
+                }
+                lastDisplayedText = text
                 overlayTextView.text = text
                 overlayTextView.visibility = View.VISIBLE
                 hasActiveSubtitle = true

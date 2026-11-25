@@ -63,8 +63,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchAntiDuplicate: MaterialSwitch
     private lateinit var switchContextMemory: MaterialSwitch
 
-    // Cover & Appearance
-    private lateinit var switchCoverEngSub: MaterialSwitch
+    // Position & Appearance
+    private lateinit var chipGroupSubPos: ChipGroup
     private lateinit var switchSmartColorMatch: MaterialSwitch
     private lateinit var switchAutoFadeBubble: MaterialSwitch
     private lateinit var txtSubtitlePreview: TextView
@@ -107,10 +107,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "2.2"
+            val vName = info.versionName ?: "2.3"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v2.2"
+            "v2.3"
         }
     }
 
@@ -125,7 +125,6 @@ class MainActivity : AppCompatActivity() {
         setupListeners()
         refreshOfflineModelStatus()
 
-        // Tự động kiểm tra bản cập nhật OTA ngầm ngay khi mở app
         checkForOtaUpdate(silent = true)
     }
 
@@ -153,7 +152,7 @@ class MainActivity : AppCompatActivity() {
         switchAntiDuplicate = findViewById(R.id.switchAntiDuplicate)
         switchContextMemory = findViewById(R.id.switchContextMemory)
 
-        switchCoverEngSub = findViewById(R.id.switchCoverEngSub)
+        chipGroupSubPos = findViewById(R.id.chipGroupSubPos)
         switchSmartColorMatch = findViewById(R.id.switchSmartColorMatch)
         switchAutoFadeBubble = findViewById(R.id.switchAutoFadeBubble)
         txtSubtitlePreview = findViewById(R.id.txtSubtitlePreview)
@@ -230,7 +229,7 @@ class MainActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle("Lưu Profile Game")
-            .setMessage("Sẽ lưu vùng Eng-Sub hiện tại, văn phong, tên riêng và chế độ đè sub.")
+            .setMessage("Sẽ lưu vùng Eng-Sub hiện tại, văn phong, tên riêng và vị trí phụ đề.")
             .setView(input)
             .setPositiveButton("Lưu") { _, _ ->
                 val name = input.text.toString().trim()
@@ -339,7 +338,13 @@ class MainActivity : AppCompatActivity() {
         edtGlossary.setText(s.customGlossary)
         switchAntiDuplicate.isChecked = s.antiDuplicate
         switchContextMemory.isChecked = s.useContextMemory
-        switchCoverEngSub.isChecked = s.coverEngSub
+
+        when (s.subtitlePositionMode) {
+            SubtitlePositionMode.ABOVE_CROP -> chipGroupSubPos.check(R.id.chipPosAbove)
+            SubtitlePositionMode.COVER_CROP -> chipGroupSubPos.check(R.id.chipPosCover)
+            SubtitlePositionMode.BOTTOM_FLOATING -> chipGroupSubPos.check(R.id.chipPosBottom)
+        }
+
         switchSmartColorMatch.isChecked = s.smartColorMatch
         switchAutoFadeBubble.isChecked = s.autoFadeBubble
         switchManualTriggerOnly.isChecked = s.manualTriggerOnly
@@ -448,6 +453,12 @@ class MainActivity : AppCompatActivity() {
             else -> TranslationStyle.RPG_FANTASY
         }
 
+        val posMode = when (chipGroupSubPos.checkedChipId) {
+            R.id.chipPosCover -> SubtitlePositionMode.COVER_CROP
+            R.id.chipPosBottom -> SubtitlePositionMode.BOTTOM_FLOATING
+            else -> SubtitlePositionMode.ABOVE_CROP
+        }
+
         val color = when (chipGroupColor.checkedChipId) {
             R.id.chipColorYellow -> SubtitleColor.YELLOW
             R.id.chipColorCyan -> SubtitleColor.CYAN
@@ -477,7 +488,7 @@ class MainActivity : AppCompatActivity() {
             translationMode = mode,
             translationStyle = style,
             customGlossary = edtGlossary.text?.toString()?.trim() ?: "",
-            coverEngSub = switchCoverEngSub.isChecked,
+            subtitlePositionMode = posMode,
             smartColorMatch = switchSmartColorMatch.isChecked,
             autoFadeBubble = switchAutoFadeBubble.isChecked,
             manualTriggerOnly = switchManualTriggerOnly.isChecked,

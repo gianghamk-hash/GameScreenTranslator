@@ -8,7 +8,7 @@ data class GameProfile(
     val name: String,
     val translationStyle: TranslationStyle,
     val customGlossary: String,
-    val coverEngSub: Boolean,
+    val subtitlePositionMode: SubtitlePositionMode,
     val smartColorMatch: Boolean,
     val manualTriggerOnly: Boolean,
     val cropLeftPct: Float,
@@ -18,7 +18,7 @@ data class GameProfile(
 )
 
 /**
- * Lưu & chuyển đổi nhanh Profile theo từng tựa game (vùng Eng-Sub, văn phong, tên riêng, chế độ đè sub).
+ * Lưu & chuyển đổi nhanh Profile theo từng tựa game (vùng Eng-Sub, văn phong, tên riêng, vị trí phụ đề).
  */
 object GameProfileStore {
     private const val PREF_NAME = "GameProfilesPrefs"
@@ -32,12 +32,14 @@ object GameProfileStore {
             val arr = JSONArray(raw)
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
+                val posName = o.optString("posMode", "").ifEmpty { null }
+                val legacyCover = o.optBoolean("cover", false)
                 result.add(
                     GameProfile(
                         name = o.optString("name", "Game ${i + 1}"),
                         translationStyle = TranslationStyle.fromName(o.optString("style", null)),
                         customGlossary = o.optString("glossary", ""),
-                        coverEngSub = o.optBoolean("cover", true),
+                        subtitlePositionMode = SubtitlePositionMode.fromName(posName, legacyCover),
                         smartColorMatch = o.optBoolean("smartColor", true),
                         manualTriggerOnly = o.optBoolean("manual", false),
                         cropLeftPct = o.optDouble("left", 0.08).toFloat().coerceIn(0f, 0.95f),
@@ -61,7 +63,7 @@ object GameProfileStore {
             name = cleanName,
             translationStyle = s.translationStyle,
             customGlossary = s.customGlossary,
-            coverEngSub = s.coverEngSub,
+            subtitlePositionMode = s.subtitlePositionMode,
             smartColorMatch = s.smartColorMatch,
             manualTriggerOnly = s.manualTriggerOnly,
             cropLeftPct = s.cropLeftPct,
@@ -84,7 +86,7 @@ object GameProfileStore {
             activeProfileName = profile.name,
             translationStyle = profile.translationStyle,
             customGlossary = profile.customGlossary,
-            coverEngSub = profile.coverEngSub,
+            subtitlePositionMode = profile.subtitlePositionMode,
             smartColorMatch = profile.smartColorMatch,
             manualTriggerOnly = profile.manualTriggerOnly,
             cropLeftPct = profile.cropLeftPct,
@@ -113,7 +115,8 @@ object GameProfileStore {
                     put("name", p.name)
                     put("style", p.translationStyle.name)
                     put("glossary", p.customGlossary)
-                    put("cover", p.coverEngSub)
+                    put("posMode", p.subtitlePositionMode.name)
+                    put("cover", p.subtitlePositionMode == SubtitlePositionMode.COVER_CROP)
                     put("smartColor", p.smartColorMatch)
                     put("manual", p.manualTriggerOnly)
                     put("left", p.cropLeftPct.toDouble())
