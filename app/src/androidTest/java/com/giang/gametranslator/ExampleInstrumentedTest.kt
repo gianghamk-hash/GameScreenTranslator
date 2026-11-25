@@ -16,6 +16,15 @@ import org.junit.Assert.*
 @RunWith(AndroidJUnit4::class)
 class ExampleInstrumentedTest {
     @Test
+    fun serviceContextInflatesTranslationControls() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val overlay = android.view.LayoutInflater.from(context).inflate(R.layout.layout_overlay, null)
+        assertNotNull(overlay.findViewById<android.view.View>(R.id.btnTranslate))
+        assertNotNull(overlay.findViewById<android.view.View>(R.id.btnRegion))
+        assertNotNull(overlay.findViewById<android.view.View>(R.id.tvSubtitle))
+    }
+
+    @Test
     fun mainActivityStartsAndInflatesControls() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
