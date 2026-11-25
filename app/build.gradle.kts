@@ -12,8 +12,8 @@ android {
         applicationId = "com.giang.gametranslator"
         minSdk = 33
         targetSdk = 37
-        versionCode = 30001
-        versionName = "3.0.1"
+        versionCode = 30002
+        versionName = "3.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
