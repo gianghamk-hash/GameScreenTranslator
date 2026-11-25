@@ -112,10 +112,6 @@ class OverlayService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         initScreenMetrics()
-        startForegroundServiceNotification()
-        setupOverlayView()
-        restoreZone()
-        translator.prepareOffline { ready -> Toast.makeText(this, if (ready) "Dịch offline đã sẵn sàng" else "Chưa tải được model offline (cần Wi-Fi)", Toast.LENGTH_SHORT).show() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -129,6 +125,12 @@ class OverlayService : Service() {
         }
 
         if (resultCode == Activity.RESULT_OK && data != null && mediaProjection == null) {
+            // Android 14+ requires the user's capture consent before starting a
+            // mediaProjection foreground service. onCreate runs before this intent arrives.
+            startForegroundServiceNotification()
+            setupOverlayView()
+            restoreZone()
+            translator.prepareOffline { ready -> Toast.makeText(this, if (ready) "Dịch offline đã sẵn sàng" else "Chưa tải được model offline (cần Wi-Fi)", Toast.LENGTH_SHORT).show() }
             val projectionManager =
                 getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = projectionManager.getMediaProjection(resultCode, data)
