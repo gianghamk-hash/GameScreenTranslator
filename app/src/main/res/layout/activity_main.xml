@@ -54,7 +54,7 @@
                 android:background="@color/surface_elevated"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
-                android:text="v2.4.1"
+                android:text="v2.5"
                 android:textColor="@color/accent_cyan"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -370,7 +370,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:hint="Tên nhân vật / địa danh cần giữ nguyên (cách nhau dấu phẩy)"
+                    android:hint="Tên giữ nguyên hoặc từ điển (vd: Cloud, Midgar, Guild=Công hội)"
                     app:boxStrokeColor="@color/accent_blue">
 
                     <com.google.android.material.textfield.TextInputEditText

@@ -124,6 +124,10 @@ class TranslationEngine(private val appContext: Context) {
         val keys = settings.apiKeys()
         when (settings.translationMode) {
             TranslationMode.OFFLINE -> {
+                OfflineGameDictionary.lookupExactPhrase(englishText, settings)?.let { exact ->
+                    onSuccess(exact, true)
+                    return
+                }
                 translateOffline(englishText, settings, onSuccess, onError)
             }
             TranslationMode.ONLINE -> {
@@ -400,19 +404,31 @@ class TranslationEngine(private val appContext: Context) {
             val terms = settings.glossaryTerms().sortedByDescending { it.length }
 
             texts.forEachIndexed { idx, original ->
-                val (prepared, placeholders) = protectGlossary(original, terms)
-                translator.translate(prepared)
-                    .addOnSuccessListener { translated ->
-                        results[idx] = restoreGlossary(translated.trim(), placeholders)
-                        if (remaining.decrementAndGet() == 0) {
-                            onSuccess(results.toList(), true)
-                        }
+                val exact = OfflineGameDictionary.lookupExactPhrase(original, settings)
+                if (exact != null) {
+                    results[idx] = exact
+                    if (remaining.decrementAndGet() == 0) {
+                        onSuccess(results.toList(), true)
                     }
-                    .addOnFailureListener {
-                        if (remaining.decrementAndGet() == 0) {
-                            onSuccess(results.toList(), true)
+                } else {
+                    val prepared = OfflineGameDictionary.prepareForOffline(original, settings)
+                    translator.translate(prepared.textForMlKit)
+                        .addOnSuccessListener { translated ->
+                            results[idx] = OfflineGameDictionary.postProcessOffline(
+                                translated,
+                                prepared,
+                                settings.translationStyle
+                            )
+                            if (remaining.decrementAndGet() == 0) {
+                                onSuccess(results.toList(), true)
+                            }
                         }
-                    }
+                        .addOnFailureListener {
+                            if (remaining.decrementAndGet() == 0) {
+                                onSuccess(results.toList(), true)
+                            }
+                        }
+                }
             }
         }
     }
@@ -444,10 +460,14 @@ class TranslationEngine(private val appContext: Context) {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/${settings.modelName}:generateContent?key=$apiKey"
 
         val glossaryTerms = settings.glossaryTerms()
-        val glossaryRule = if (glossaryTerms.isNotEmpty()) {
-            "\n- Danh sách tên riêng/thuật ngữ bắt buộc giữ nguyên: ${glossaryTerms.joinToString(", ")}."
-        } else {
-            ""
+        val customPairs = settings.customReplacements()
+        val glossaryRule = buildString {
+            if (glossaryTerms.isNotEmpty()) {
+                append("\n- Danh sách tên riêng/thuật ngữ bắt buộc giữ nguyên: ${glossaryTerms.joinToString(", ")}.")
+            }
+            if (customPairs.isNotEmpty()) {
+                append("\n- Thuật ngữ dịch cố định: ${customPairs.joinToString(", ") { "${it.first} -> ${it.second}" }}.")
+            }
         }
 
         val systemText = """
@@ -600,12 +620,22 @@ class TranslationEngine(private val appContext: Context) {
                 return@isOfflineModelDownloaded
             }
 
-            val terms = settings.glossaryTerms().sortedByDescending { it.length }
-            val (prepared, placeholders) = protectGlossary(englishText, terms)
+            OfflineGameDictionary.lookupExactPhrase(englishText, settings)?.let { exact ->
+                onSuccess(exact, true)
+                return@isOfflineModelDownloaded
+            }
+            val prepared = OfflineGameDictionary.prepareForOffline(englishText, settings)
 
-            translator.translate(prepared)
+            translator.translate(prepared.textForMlKit)
                 .addOnSuccessListener { rawTranslated ->
-                    onSuccess(restoreGlossary(rawTranslated.trim(), placeholders), true)
+                    onSuccess(
+                        OfflineGameDictionary.postProcessOffline(
+                            rawTranslated,
+                            prepared,
+                            settings.translationStyle
+                        ),
+                        true
+                    )
                 }
                 .addOnFailureListener { e ->
                     DiagnosticLogStore.error(appContext, "Lỗi ML Kit Offline: ${e.message}")
