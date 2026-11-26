@@ -2,8 +2,8 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
-val propVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 8
-val propVersionName = (project.findProperty("versionName") as String?) ?: "2.5"
+val propVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 9
+val propVersionName = (project.findProperty("versionName") as String?) ?: "2.6"
 val keystorePath = System.getenv("KEYSTORE_PATH")
 val keystorePasswordEnv = System.getenv("KEYSTORE_PASSWORD")
 val keyAliasEnv = System.getenv("KEY_ALIAS")
@@ -67,10 +67,13 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
 
-    // 1. Google ML Kit nhận diện chữ tiếng Anh (OCR)
+    // 1. Google ML Kit OCR đa ngôn ngữ: Anh (Latin), Nhật, Trung, Hàn
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
 
-    // 2. Google ML Kit dịch Offline ngay trên thiết bị (EN -> VI)
+    // 2. Google ML Kit dịch Offline ngay trên thiết bị (EN/JA/ZH/KO -> VI)
     implementation("com.google.mlkit:translate:17.0.3")
 
     // 3. OkHttp để gọi Gemini API dịch siêu nhanh (HTTP/2 connection pooling)

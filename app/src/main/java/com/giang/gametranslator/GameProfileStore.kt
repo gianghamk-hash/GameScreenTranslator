@@ -6,6 +6,7 @@ import org.json.JSONObject
 
 data class GameProfile(
     val name: String,
+    val sourceLanguage: SourceLanguage,
     val translationStyle: TranslationStyle,
     val customGlossary: String,
     val subtitlePositionMode: SubtitlePositionMode,
@@ -18,7 +19,7 @@ data class GameProfile(
 )
 
 /**
- * Lưu & chuyển đổi nhanh Profile theo từng tựa game (vùng Eng-Sub, văn phong, tên riêng, vị trí phụ đề).
+ * Lưu & chuyển đổi nhanh Profile theo từng tựa game (ngôn ngữ nguồn, vùng thoại, văn phong, tên riêng, vị trí phụ đề).
  */
 object GameProfileStore {
     private const val PREF_NAME = "GameProfilesPrefs"
@@ -37,6 +38,7 @@ object GameProfileStore {
                 result.add(
                     GameProfile(
                         name = o.optString("name", "Game ${i + 1}"),
+                        sourceLanguage = SourceLanguage.fromName(o.optString("lang", null)),
                         translationStyle = TranslationStyle.fromName(o.optString("style", null)),
                         customGlossary = o.optString("glossary", ""),
                         subtitlePositionMode = SubtitlePositionMode.fromName(posName, legacyCover),
@@ -61,6 +63,7 @@ object GameProfileStore {
         val current = listProfiles(context).toMutableList()
         val newProfile = GameProfile(
             name = cleanName,
+            sourceLanguage = s.sourceLanguage,
             translationStyle = s.translationStyle,
             customGlossary = s.customGlossary,
             subtitlePositionMode = s.subtitlePositionMode,
@@ -84,6 +87,7 @@ object GameProfileStore {
     fun applyProfile(context: Context, profile: GameProfile): TranslatorSettings {
         val updated = SettingsStore.load(context).copy(
             activeProfileName = profile.name,
+            sourceLanguage = profile.sourceLanguage,
             translationStyle = profile.translationStyle,
             customGlossary = profile.customGlossary,
             subtitlePositionMode = profile.subtitlePositionMode,
@@ -113,6 +117,7 @@ object GameProfileStore {
             arr.put(
                 JSONObject().apply {
                     put("name", p.name)
+                    put("lang", p.sourceLanguage.name)
                     put("style", p.translationStyle.name)
                     put("glossary", p.customGlossary)
                     put("posMode", p.subtitlePositionMode.name)

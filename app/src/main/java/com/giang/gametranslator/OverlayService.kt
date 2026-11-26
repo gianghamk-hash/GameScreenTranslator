@@ -48,6 +48,10 @@ import android.widget.TextView
 import android.widget.Toast
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -83,7 +87,32 @@ class OverlayService : Service() {
     private lateinit var captureThread: HandlerThread
     private lateinit var captureHandler: Handler
 
-    private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private var textRecognizer: TextRecognizer? = null
+    private var activeRecognizerLang: SourceLanguage? = null
+    private val recognizerLock = Any()
+
+    private fun getActiveTextRecognizer(): TextRecognizer {
+        val targetLang = settings.sourceLanguage
+        synchronized(recognizerLock) {
+            val current = textRecognizer
+            if (current != null && activeRecognizerLang == targetLang) {
+                return current
+            }
+            try {
+                current?.close()
+            } catch (_: Exception) {
+            }
+            val created = when (targetLang) {
+                SourceLanguage.JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
+                SourceLanguage.CHINESE -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+                SourceLanguage.KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
+                SourceLanguage.ENGLISH -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            }
+            textRecognizer = created
+            activeRecognizerLang = targetLang
+            return created
+        }
+    }
     private val deduplicator = TextDeduplicator()
     private lateinit var translationEngine: TranslationEngine
 
@@ -295,7 +324,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v2.5 đang chạy")
+            .setContentTitle("Game Screen Translator v2.6 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
@@ -671,6 +700,20 @@ class OverlayService : Service() {
             Toast.makeText(this, "Vị trí mới: ${nextPos.label}", Toast.LENGTH_SHORT).show()
         }
 
+        addMenuItem("🌐 Ngôn ngữ: ${settings.sourceLanguage.shortLabel} → Việt (chạm đổi)", "#FF38BDF8") {
+            val nextLang = when (settings.sourceLanguage) {
+                SourceLanguage.ENGLISH -> SourceLanguage.JAPANESE
+                SourceLanguage.JAPANESE -> SourceLanguage.CHINESE
+                SourceLanguage.CHINESE -> SourceLanguage.KOREAN
+                SourceLanguage.KOREAN -> SourceLanguage.ENGLISH
+            }
+            settings = settings.copy(sourceLanguage = nextLang)
+            SettingsStore.save(this, settings)
+            deduplicator.resetSession()
+            translationEngine.clearHistory()
+            Toast.makeText(this, "Đã chuyển OCR & Dịch sang: ${nextLang.vietnameseName}", Toast.LENGTH_SHORT).show()
+        }
+
         addMenuItem("🎮 Profile: ${settings.activeProfileName} (đổi nhanh)", "#FFA78BFA") {
             openProfilePickerOverlay()
         }
@@ -932,17 +975,18 @@ class OverlayService : Service() {
             }
 
             val inputImage = InputImage.fromBitmap(fullBitmap, 0)
-            textRecognizer.process(inputImage)
+            getActiveTextRecognizer().process(inputImage)
                 .addOnSuccessListener { visionText ->
                     fullBitmap.recycle()
 
                     val rawBlocks = mutableListOf<FullScreenBlock>()
-                    val letterRegex = Regex("[A-Za-z]{2,}")
+                    val letterRegex = Regex("[A-Za-z\\u3040-\\u30FF\\u4E00-\\u9FFF\\uAC00-\\uD7AF]")
 
                     for (block in visionText.textBlocks) {
                         val box = block.boundingBox ?: continue
                         val clean = block.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
-                        if (clean.length < 2 || !letterRegex.containsMatchIn(clean)) continue
+                        val minBlockLen = if (settings.sourceLanguage == SourceLanguage.ENGLISH) 2 else 1
+                        if (clean.length < minBlockLen || !letterRegex.containsMatchIn(clean)) continue
 
                         val rect = RectF(
                             (box.left * scaleX).coerceIn(0f, screenW.toFloat()),
@@ -958,12 +1002,12 @@ class OverlayService : Service() {
                         isFullScreenBusy = false
                         mainHandler.post {
                             closeFullScreenOverlay()
-                            Toast.makeText(this, "Không tìm thấy chữ tiếng Anh trên màn hình!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "Không tìm thấy chữ ${settings.sourceLanguage.vietnameseName} trên màn hình!", Toast.LENGTH_SHORT).show()
                         }
                         return@addOnSuccessListener
                     }
 
-                    val cacheNs = "FS|${settings.translationMode.name}|${settings.customGlossary.hashCode()}"
+                    val cacheNs = "FS|${settings.sourceLanguage.name}|${settings.translationMode.name}|${settings.customGlossary.hashCode()}"
                     val uncachedIndices = mutableListOf<Int>()
                     val uncachedTexts = mutableListOf<String>()
 
@@ -1508,7 +1552,7 @@ class OverlayService : Service() {
         val bitmapForOcr = croppedBitmap
         val inputImage = InputImage.fromBitmap(bitmapForOcr, 0)
 
-        textRecognizer.process(inputImage)
+        getActiveTextRecognizer().process(inputImage)
             .addOnSuccessListener { visionText ->
                 val rawText = visionText.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
                 bitmapForOcr.recycle()
@@ -1526,7 +1570,8 @@ class OverlayService : Service() {
     }
 
     private fun handleRecognizedText(rawText: String, forceManual: Boolean) {
-        if (rawText.length <= 2) {
+        val minLen = if (settings.sourceLanguage == SourceLanguage.ENGLISH) 3 else 1
+        if (rawText.length < minLen) {
             emptyFrameCount++
             if (forceManual || emptyFrameCount >= 2) {
                 deduplicator.onEmptyFrame()
@@ -1539,7 +1584,7 @@ class OverlayService : Service() {
         }
 
         emptyFrameCount = 0
-        val cacheNamespace = "${settings.translationMode.name}|${settings.translationStyle.name}|${settings.customGlossary.hashCode()}"
+        val cacheNamespace = "${settings.sourceLanguage.name}|${settings.translationMode.name}|${settings.translationStyle.name}|${settings.customGlossary.hashCode()}"
         val eval = deduplicator.evaluate(
             rawText = rawText,
             cacheNamespace = cacheNamespace,
@@ -1563,7 +1608,7 @@ class OverlayService : Service() {
                 }
 
                 translationEngine.translate(
-                    englishText = rawText,
+                    sourceText = rawText,
                     settings = settings,
                     onSuccess = { translated, usedOffline ->
                         if (seq != translationSequence || !isRunning || isSelectingRegion) return@translate
@@ -1618,7 +1663,13 @@ class OverlayService : Service() {
         if (::translationEngine.isInitialized) {
             translationEngine.close()
         }
-        textRecognizer.close()
+        synchronized(recognizerLock) {
+            try {
+                textRecognizer?.close()
+            } catch (_: Exception) {
+            }
+            textRecognizer = null
+        }
         closeQuickMenuOverlay()
         closeHistoryOverlay()
         closeProfilePickerOverlay()

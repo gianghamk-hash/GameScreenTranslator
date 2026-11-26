@@ -16,6 +16,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.TypedValue
+import android.view.View
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
@@ -28,6 +29,7 @@ import androidx.core.content.FileProvider
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.slider.Slider
 import com.google.android.material.textfield.TextInputEditText
 import okhttp3.Call
@@ -52,12 +54,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSwitchProfile: MaterialButton
     private lateinit var btnSaveProfile: MaterialButton
 
-    // Engine & Offline
+    // Language, Engine & Offline
+    private lateinit var chipGroupSourceLang: ChipGroup
     private lateinit var chipGroupMode: ChipGroup
     private lateinit var edtApiKey: TextInputEditText
     private lateinit var edtModelName: TextInputEditText
+    private lateinit var txtOfflinePackTitle: TextView
     private lateinit var txtOfflineStatus: TextView
     private lateinit var btnDownloadOffline: MaterialButton
+    private lateinit var progressOfflineDownload: LinearProgressIndicator
 
     // Style & Deduplication
     private lateinit var chipGroupStyle: ChipGroup
@@ -89,6 +94,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var txtVersionBadge: TextView
 
     private var isOfflineDownloaded = false
+    private var isDownloadingOffline = false
+    private var cancelDownloadPoller: (() -> Unit)? = null
     private val httpClient = OkHttpClient()
 
     private val screenCaptureLauncher = registerForActivityResult(
@@ -110,10 +117,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "2.5"
+            val vName = info.versionName ?: "2.6"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v2.5"
+            "v2.6"
         }
     }
 
@@ -137,6 +144,12 @@ class MainActivity : AppCompatActivity() {
         refreshBatteryOptButton()
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        cancelDownloadPoller?.invoke()
+        cancelDownloadPoller = null
+    }
+
     private fun bindViews() {
         txtVersionBadge = findViewById(R.id.txtVersionBadge)
         txtVersionBadge.text = getCurrentVersionTag()
@@ -145,11 +158,14 @@ class MainActivity : AppCompatActivity() {
         btnSwitchProfile = findViewById(R.id.btnSwitchProfile)
         btnSaveProfile = findViewById(R.id.btnSaveProfile)
 
+        chipGroupSourceLang = findViewById(R.id.chipGroupSourceLang)
         chipGroupMode = findViewById(R.id.chipGroupMode)
         edtApiKey = findViewById(R.id.edtApiKey)
         edtModelName = findViewById(R.id.edtModelName)
+        txtOfflinePackTitle = findViewById(R.id.txtOfflinePackTitle)
         txtOfflineStatus = findViewById(R.id.txtOfflineStatus)
         btnDownloadOffline = findViewById(R.id.btnDownloadOffline)
+        progressOfflineDownload = findViewById(R.id.progressOfflineDownload)
 
         chipGroupStyle = findViewById(R.id.chipGroupStyle)
         edtGlossary = findViewById(R.id.edtGlossary)
@@ -210,6 +226,15 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnUpdate).setOnClickListener {
             checkForOtaUpdate(silent = false)
+        }
+    }
+
+    private fun selectedSourceLanguage(): SourceLanguage {
+        return when (chipGroupSourceLang.checkedChipId) {
+            R.id.chipLangJa -> SourceLanguage.JAPANESE
+            R.id.chipLangZh -> SourceLanguage.CHINESE
+            R.id.chipLangKo -> SourceLanguage.KOREAN
+            else -> SourceLanguage.ENGLISH
         }
     }
 
@@ -291,14 +316,14 @@ class MainActivity : AppCompatActivity() {
     private fun showSaveProfileDialog() {
         val currentSettings = collectSettingsFromUi()
         val input = EditText(this).apply {
-            hint = "VD: Final Fantasy VII, Persona 5..."
+            hint = "VD: Final Fantasy VII, Persona 5 JP..."
             setText(if (currentSettings.activeProfileName == "Mặc định") "" else currentSettings.activeProfileName)
             setPadding(48, 32, 48, 32)
         }
 
         AlertDialog.Builder(this)
             .setTitle("Lưu Profile Game")
-            .setMessage("Sẽ lưu vùng Eng-Sub hiện tại, văn phong, tên riêng và vị trí phụ đề.")
+            .setMessage("Sẽ lưu ngôn ngữ gốc, vùng thoại, văn phong, tên riêng và vị trí phụ đề.")
             .setView(input)
             .setPositiveButton("Lưu") { _, _ ->
                 val name = input.text.toString().trim()
@@ -322,13 +347,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val labels = profiles.map { "${it.name}  •  ${it.translationStyle.label}" }.toTypedArray()
+        val labels = profiles.map { "${it.name}  •  ${it.sourceLanguage.shortLabel} • ${it.translationStyle.label}" }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle("Chọn Profile Game")
             .setItems(labels) { _, which ->
                 val chosen = profiles[which]
                 GameProfileStore.applyProfile(this, chosen)
                 loadSettingsIntoUi()
+                refreshOfflineModelStatus()
                 notifyOverlayReloadIfRunning()
                 Toast.makeText(this, "Đã áp dụng Profile '${chosen.name}'", Toast.LENGTH_SHORT).show()
             }
@@ -387,6 +413,13 @@ class MainActivity : AppCompatActivity() {
     private fun loadSettingsIntoUi() {
         val s = SettingsStore.load(this)
         txtActiveProfile.text = "🎮 ${s.activeProfileName}"
+
+        when (s.sourceLanguage) {
+            SourceLanguage.JAPANESE -> chipGroupSourceLang.check(R.id.chipLangJa)
+            SourceLanguage.CHINESE -> chipGroupSourceLang.check(R.id.chipLangZh)
+            SourceLanguage.KOREAN -> chipGroupSourceLang.check(R.id.chipLangKo)
+            SourceLanguage.ENGLISH -> chipGroupSourceLang.check(R.id.chipLangEn)
+        }
 
         when (s.translationMode) {
             TranslationMode.HYBRID -> chipGroupMode.check(R.id.chipModeHybrid)
@@ -452,15 +485,31 @@ class MainActivity : AppCompatActivity() {
         sliderBgAlpha.addOnChangeListener { _, _, _ -> updateSliderLabelsAndPreview() }
         chipGroupColor.setOnCheckedStateChangeListener { _, _ -> updateSliderLabelsAndPreview() }
 
+        chipGroupSourceLang.setOnCheckedStateChangeListener { _, _ ->
+            if (!isDownloadingOffline) {
+                refreshOfflineModelStatus()
+            }
+        }
+
         btnDownloadOffline.setOnClickListener {
+            val lang = selectedSourceLanguage()
+            if (isDownloadingOffline) {
+                cancelDownloadPoller?.invoke()
+                cancelDownloadPoller = null
+                isDownloadingOffline = false
+                progressOfflineDownload.visibility = View.GONE
+                refreshOfflineModelStatus()
+                return@setOnClickListener
+            }
+
             if (isOfflineDownloaded) {
                 AlertDialog.Builder(this)
-                    .setTitle("Xóa gói dịch Offline?")
-                    .setMessage("Bạn có muốn xóa gói ngôn ngữ Anh → Việt trên máy để giải phóng bộ nhớ không?")
+                    .setTitle("Xóa gói dịch Offline (${lang.shortLabel} → Việt)?")
+                    .setMessage("Bạn có muốn xóa gói ngôn ngữ ${lang.vietnameseName} trên máy để giải phóng bộ nhớ không?")
                     .setPositiveButton("Xóa") { _, _ ->
                         btnDownloadOffline.isEnabled = false
                         txtOfflineStatus.text = "Đang xóa gói Offline..."
-                        TranslationEngine.deleteOfflineModel {
+                        TranslationEngine.deleteOfflineModel(lang) {
                             runOnUiThread {
                                 btnDownloadOffline.isEnabled = true
                                 refreshOfflineModelStatus()
@@ -470,37 +519,76 @@ class MainActivity : AppCompatActivity() {
                     .setNegativeButton("Hủy", null)
                     .show()
             } else {
-                btnDownloadOffline.isEnabled = false
-                txtOfflineStatus.text = "Đang tải gói Anh → Việt (~30MB)..."
-                TranslationEngine.downloadOfflineModel(
-                    onSuccess = {
-                        runOnUiThread {
-                            btnDownloadOffline.isEnabled = true
-                            refreshOfflineModelStatus()
-                            Toast.makeText(this, "Đã tải xong gói dịch Offline!", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onError = { err ->
-                        runOnUiThread {
-                            btnDownloadOffline.isEnabled = true
-                            txtOfflineStatus.text = "Tải thất bại: $err"
-                        }
-                    }
-                )
+                startOfflineDownloadWithProgress(lang)
             }
         }
     }
 
+    private fun startOfflineDownloadWithProgress(lang: SourceLanguage) {
+        isDownloadingOffline = true
+        btnDownloadOffline.text = "Hủy"
+        progressOfflineDownload.visibility = View.VISIBLE
+        progressOfflineDownload.isIndeterminate = true
+        txtOfflineStatus.setTextColor(ContextCompat.getColor(this, R.color.accent_cyan))
+        txtOfflineStatus.text = "Đang khởi tạo tải gói ${lang.shortLabel} → Việt..."
+
+        cancelDownloadPoller?.invoke()
+        cancelDownloadPoller = TranslationEngine.downloadOfflineModelWithProgress(
+            context = this,
+            lang = lang,
+            onProgress = { pct, indeterminate, statusText ->
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    progressOfflineDownload.visibility = View.VISIBLE
+                    if (indeterminate) {
+                        if (!progressOfflineDownload.isIndeterminate) {
+                            progressOfflineDownload.isIndeterminate = true
+                        }
+                    } else {
+                        progressOfflineDownload.setProgressCompat(pct, true)
+                    }
+                    txtOfflineStatus.text = statusText
+                }
+            },
+            onSuccess = {
+                runOnUiThread {
+                    isDownloadingOffline = false
+                    cancelDownloadPoller = null
+                    progressOfflineDownload.visibility = View.GONE
+                    refreshOfflineModelStatus()
+                    Toast.makeText(this, "Đã tải xong gói Offline (${lang.shortLabel} → Việt)!", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onError = { err ->
+                runOnUiThread {
+                    isDownloadingOffline = false
+                    cancelDownloadPoller = null
+                    progressOfflineDownload.visibility = View.GONE
+                    btnDownloadOffline.text = "Thử lại"
+                    txtOfflineStatus.setTextColor(ContextCompat.getColor(this, R.color.accent_red))
+                    txtOfflineStatus.text = "Tải thất bại: $err"
+                }
+            }
+        )
+    }
+
     private fun refreshOfflineModelStatus() {
-        TranslationEngine.isOfflineModelDownloaded { downloaded ->
+        val lang = selectedSourceLanguage()
+        txtOfflinePackTitle.text = "Gói dịch Offline (${lang.shortLabel} → Việt)"
+        txtOfflineStatus.text = "Đang kiểm tra..."
+        txtOfflineStatus.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+
+        TranslationEngine.isOfflineModelDownloaded(lang) { downloaded ->
             runOnUiThread {
+                if (lang != selectedSourceLanguage() || isDownloadingOffline) return@runOnUiThread
                 isOfflineDownloaded = downloaded
+                val approxSize = if (lang == SourceLanguage.ENGLISH) "~30MB" else "~60MB"
                 if (downloaded) {
                     txtOfflineStatus.text = "Đã sẵn sàng trên máy (không cần mạng)"
                     txtOfflineStatus.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
                     btnDownloadOffline.text = "Xóa gói"
                 } else {
-                    txtOfflineStatus.text = "Chưa tải (~30MB, cần mạng lần đầu)"
+                    txtOfflineStatus.text = "Chưa tải ($approxSize, cần mạng lần đầu)"
                     txtOfflineStatus.setTextColor(ContextCompat.getColor(this, R.color.accent_amber))
                     btnDownloadOffline.text = "Tải gói"
                 }
@@ -554,6 +642,7 @@ class MainActivity : AppCompatActivity() {
             apiKey = edtApiKey.text?.toString()?.trim() ?: "",
             modelName = edtModelName.text?.toString()?.trim()?.ifEmpty { "gemini-3.5-flash-lite" }
                 ?: "gemini-3.5-flash-lite",
+            sourceLanguage = selectedSourceLanguage(),
             translationMode = mode,
             translationStyle = style,
             customGlossary = edtGlossary.text?.toString()?.trim() ?: "",
@@ -617,7 +706,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (s.translationMode == TranslationMode.OFFLINE && !isOfflineDownloaded) {
-            Toast.makeText(this, "Vui lòng bấm 'Tải gói' Offline (Anh → Việt) trước!", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Vui lòng bấm 'Tải gói' Offline (${s.sourceLanguage.shortLabel} → Việt) trước!", Toast.LENGTH_LONG).show()
             return
         }
 

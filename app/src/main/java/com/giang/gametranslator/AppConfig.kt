@@ -3,6 +3,23 @@ package com.giang.gametranslator
 import android.content.Context
 import android.graphics.Color
 import android.view.KeyEvent
+import com.google.mlkit.nl.translate.TranslateLanguage
+
+enum class SourceLanguage(
+    val shortLabel: String,
+    val vietnameseName: String,
+    val mlKitCode: String
+) {
+    ENGLISH("Anh", "tiếng Anh", TranslateLanguage.ENGLISH),
+    JAPANESE("Nhật", "tiếng Nhật", TranslateLanguage.JAPANESE),
+    CHINESE("Trung", "tiếng Trung", TranslateLanguage.CHINESE),
+    KOREAN("Hàn", "tiếng Hàn", TranslateLanguage.KOREAN);
+
+    companion object {
+        fun fromName(name: String?): SourceLanguage =
+            entries.firstOrNull { it.name == name } ?: ENGLISH
+    }
+}
 
 enum class TranslationMode(val label: String) {
     HYBRID("Tự động (AI + Offline)"),
@@ -79,6 +96,7 @@ enum class GamepadHotkey(val keyCode: Int, val label: String) {
 data class TranslatorSettings(
     val apiKey: String = "",
     val modelName: String = "gemini-3.5-flash-lite",
+    val sourceLanguage: SourceLanguage = SourceLanguage.ENGLISH,
     val translationMode: TranslationMode = TranslationMode.HYBRID,
     val translationStyle: TranslationStyle = TranslationStyle.RPG_FANTASY,
     val customGlossary: String = "",
@@ -115,7 +133,6 @@ data class TranslatorSettings(
 
     fun bgColorInt(): Int = Color.argb(bgAlphaInt(), 11, 15, 23)
 
-    // Tên riêng giữ nguyên (mục không có dấu '=')
     fun glossaryTerms(): List<String> =
         customGlossary
             .split(",", "\n", ";")
@@ -123,7 +140,6 @@ data class TranslatorSettings(
             .filter { it.isNotEmpty() && !it.contains("=") }
             .distinct()
 
-    // Từ điển dịch tùy chỉnh dạng "Từ gốc = Nghĩa Việt"
     fun customReplacements(): List<Pair<String, String>> =
         customGlossary
             .split(",", "\n", ";")
@@ -153,6 +169,7 @@ object SettingsStore {
                 ?.trim()
                 ?.let { if (it.isEmpty() || it == "gemini-2.5-flash-lite") "gemini-3.5-flash-lite" else it }
                 ?: "gemini-3.5-flash-lite",
+            sourceLanguage = SourceLanguage.fromName(p.getString("SOURCE_LANGUAGE", null)),
             translationMode = TranslationMode.fromName(p.getString("TRANSLATION_MODE", null)),
             translationStyle = TranslationStyle.fromName(p.getString("TRANSLATION_STYLE", null)),
             customGlossary = p.getString("CUSTOM_GLOSSARY", "") ?: "",
@@ -180,6 +197,7 @@ object SettingsStore {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
             .putString("API_KEY", s.apiKey.trim())
             .putString("MODEL_NAME", s.modelName.trim().ifEmpty { "gemini-3.5-flash-lite" })
+            .putString("SOURCE_LANGUAGE", s.sourceLanguage.name)
             .putString("TRANSLATION_MODE", s.translationMode.name)
             .putString("TRANSLATION_STYLE", s.translationStyle.name)
             .putString("CUSTOM_GLOSSARY", s.customGlossary.trim())

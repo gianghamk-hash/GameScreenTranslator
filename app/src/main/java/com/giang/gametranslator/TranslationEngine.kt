@@ -1,6 +1,9 @@
 package com.giang.gametranslator
 
+import android.app.DownloadManager
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.translate.TranslateLanguage
@@ -20,17 +23,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.ArrayDeque
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.regex.Pattern
 
 /**
- * Động cơ dịch hợp nhất tối ưu tốc độ & độ ổn định tối đa:
- * - Xoay vòng nhiều Gemini API Key + cơ chế Cooldown 35s khi dính 429 (tự nhảy key hoặc lùi sang Offline mượt mà).
- * - Dịch câu thoại đơn (HTTP/2 pooling, hủy request cũ, thinkingBudget=0 trên 2.5).
- * - Dịch lô toàn màn hình 1-request (AI) hoặc song song đa luồng (Offline ML Kit).
- * - Ghi log kỹ thuật vào DiagnosticLogStore khi gặp lỗi mạng/API/xoay key.
+ * Động cơ dịch hợp nhất đa ngôn ngữ (Anh / Nhật / Trung / Hàn → Việt):
+ * - Gemini AI: xoay vòng nhiều API Key, Cooldown 35s chống 429, dịch đơn & dịch lô toàn màn hình.
+ * - Offline ML Kit: tải qua RemoteModelManager kèm theo dõi % tiến trình thực tế từ DownloadManager.
+ * - Từ điển game 0ms (OfflineGameDictionary) cho tiếng Anh & từ điển tùy chỉnh A = B cho mọi ngôn ngữ.
  */
 class TranslationEngine(private val appContext: Context) {
 
@@ -51,21 +54,20 @@ class TranslationEngine(private val appContext: Context) {
     private val recentHistory = ArrayDeque<Pair<String, String>>(5)
     private val historyLock = Any()
 
-    // Quản lý xoay vòng nhiều API Key & thời gian nghỉ khi dính 429
     private val nextKeyIndex = AtomicInteger(0)
     private val keyCooldownUntil = ConcurrentHashMap<String, Long>()
     private val cooldownDurationMs = 35_000L
 
-    private var offlineTranslator: Translator? = null
+    private val offlineTranslators = HashMap<SourceLanguage, Translator>()
 
     @Synchronized
-    private fun getOrCreateOfflineTranslator(): Translator {
-        return offlineTranslator ?: Translation.getClient(
+    private fun getOrCreateOfflineTranslator(lang: SourceLanguage): Translator {
+        return offlineTranslators[lang] ?: Translation.getClient(
             TranslatorOptions.Builder()
-                .setSourceLanguage(TranslateLanguage.ENGLISH)
+                .setSourceLanguage(lang.mlKitCode)
                 .setTargetLanguage(TranslateLanguage.VIETNAMESE)
                 .build()
-        ).also { offlineTranslator = it }
+        ).also { offlineTranslators[lang] = it }
     }
 
     fun clearHistory() {
@@ -88,8 +90,13 @@ class TranslationEngine(private val appContext: Context) {
     fun close() {
         cancelActiveRequest()
         cancelBatchRequest()
-        offlineTranslator?.close()
-        offlineTranslator = null
+        for (t in offlineTranslators.values) {
+            try {
+                t.close()
+            } catch (_: Exception) {
+            }
+        }
+        offlineTranslators.clear()
     }
 
     private fun pickAvailableKey(keys: List<String>, excluded: Set<String> = emptySet()): Pair<String, Int>? {
@@ -114,9 +121,9 @@ class TranslationEngine(private val appContext: Context) {
         DiagnosticLogStore.warn(appContext, "API Key #$keyNumber chạm 429 → tạm nghỉ 35s")
     }
 
-    // ==================== 1. DỊCH CÂU THOẠI ĐƠN (SUBTITLE) ====================
+    // ==================== 1. DỊCH CÂU THOẠI ĐƠN ====================
     fun translate(
-        englishText: String,
+        sourceText: String,
         settings: TranslatorSettings,
         onSuccess: (translated: String, usedOffline: Boolean) -> Unit,
         onError: (message: String) -> Unit
@@ -124,11 +131,11 @@ class TranslationEngine(private val appContext: Context) {
         val keys = settings.apiKeys()
         when (settings.translationMode) {
             TranslationMode.OFFLINE -> {
-                OfflineGameDictionary.lookupExactPhrase(englishText, settings)?.let { exact ->
+                OfflineGameDictionary.lookupExactPhrase(sourceText, settings)?.let { exact ->
                     onSuccess(exact, true)
                     return
                 }
-                translateOffline(englishText, settings, onSuccess, onError)
+                translateOffline(sourceText, settings, onSuccess, onError)
             }
             TranslationMode.ONLINE -> {
                 if (keys.isEmpty()) {
@@ -136,7 +143,7 @@ class TranslationEngine(private val appContext: Context) {
                     return
                 }
                 translateWithGemini(
-                    englishText = englishText,
+                    sourceText = sourceText,
                     settings = settings,
                     keys = keys,
                     triedKeys = emptySet(),
@@ -148,10 +155,10 @@ class TranslationEngine(private val appContext: Context) {
             }
             TranslationMode.HYBRID -> {
                 if (keys.isEmpty()) {
-                    translateOffline(englishText, settings, onSuccess, onError)
+                    translateOffline(sourceText, settings, onSuccess, onError)
                 } else {
                     translateWithGemini(
-                        englishText = englishText,
+                        sourceText = sourceText,
                         settings = settings,
                         keys = keys,
                         triedKeys = emptySet(),
@@ -165,7 +172,7 @@ class TranslationEngine(private val appContext: Context) {
         }
     }
 
-    // ==================== 2. DỊCH LÔ TOÀN MÀN HÌNH (SINGLE-SHOT BATCH) ====================
+    // ==================== 2. DỊCH LÔ TOÀN MÀN HÌNH ====================
     fun translateBatch(
         texts: List<String>,
         settings: TranslatorSettings,
@@ -243,14 +250,18 @@ class TranslationEngine(private val appContext: Context) {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/${settings.modelName}:generateContent?key=$apiKey"
 
         val glossaryTerms = settings.glossaryTerms()
-        val glossaryRule = if (glossaryTerms.isNotEmpty()) {
-            " Giữ nguyên: ${glossaryTerms.joinToString(", ")}."
-        } else {
-            ""
+        val customPairs = settings.customReplacements()
+        val glossaryRule = buildString {
+            if (glossaryTerms.isNotEmpty()) {
+                append(" Giữ nguyên: ${glossaryTerms.joinToString(", ")}.")
+            }
+            if (customPairs.isNotEmpty()) {
+                append(" Dịch cố định: ${customPairs.joinToString(", ") { "${it.first}->${it.second}" }}.")
+            }
         }
 
         val systemText = """
-            Bạn là trình dịch giao diện/menu/kho đồ game siêu tốc sang tiếng Việt.
+            Bạn là trình dịch giao diện/menu/kho đồ game từ ${settings.sourceLanguage.vietnameseName} sang tiếng Việt siêu tốc.
             - Dịch cực ngắn gọn, đúng ngữ cảnh game, giữ nguyên tên riêng, địa danh và số liệu.$glossaryRule
             - Input gồm các dòng đánh số [0], [1], ...
             - BẮT BUỘC trả về đúng số lượng dòng theo đúng định dạng [0] bản dịch, [1] bản dịch... Không thêm lời giải thích.
@@ -392,16 +403,16 @@ class TranslationEngine(private val appContext: Context) {
         onSuccess: (List<String>, Boolean) -> Unit,
         onError: (String) -> Unit
     ) {
-        val translator = getOrCreateOfflineTranslator()
-        isOfflineModelDownloaded { downloaded ->
+        val lang = settings.sourceLanguage
+        val translator = getOrCreateOfflineTranslator(lang)
+        isOfflineModelDownloaded(lang) { downloaded ->
             if (!downloaded) {
-                onError("Chưa tải gói dịch Offline (Anh → Việt) trong màn hình chính!")
+                onError("Chưa tải gói dịch Offline (${lang.shortLabel} → Việt) trong màn hình chính!")
                 return@isOfflineModelDownloaded
             }
 
             val results = Array(texts.size) { texts[it] }
             val remaining = AtomicInteger(texts.size)
-            val terms = settings.glossaryTerms().sortedByDescending { it.length }
 
             texts.forEachIndexed { idx, original ->
                 val exact = OfflineGameDictionary.lookupExactPhrase(original, settings)
@@ -434,7 +445,7 @@ class TranslationEngine(private val appContext: Context) {
     }
 
     private fun translateWithGemini(
-        englishText: String,
+        sourceText: String,
         settings: TranslatorSettings,
         keys: List<String>,
         triedKeys: Set<String>,
@@ -446,7 +457,7 @@ class TranslationEngine(private val appContext: Context) {
         val picked = pickAvailableKey(keys, triedKeys)
         if (picked == null) {
             if (allowOfflineFallback) {
-                translateOffline(englishText, settings, onSuccess) {
+                translateOffline(sourceText, settings, onSuccess) {
                     onError("Đang tạm nghỉ 429 (chưa tải gói Offline dự phòng)")
                 }
             } else {
@@ -471,7 +482,7 @@ class TranslationEngine(private val appContext: Context) {
         }
 
         val systemText = """
-            Bạn là chuyên gia Việt hóa phụ đề game thời gian thực.
+            Bạn là chuyên gia Việt hóa phụ đề game thời gian thực từ ${settings.sourceLanguage.vietnameseName} sang tiếng Việt.
             Quy tắc bắt buộc:
             - ${settings.translationStyle.instruction}
             - GIỮ NGUYÊN 100% tên nhân vật, tên người, tên địa danh, vùng đất, tổ chức (tuyệt đối không dịch nghĩa đen tên người hay địa danh).$glossaryRule
@@ -484,14 +495,14 @@ class TranslationEngine(private val appContext: Context) {
                 val snapshot = synchronized(historyLock) { recentHistory.toList() }
                 if (snapshot.isNotEmpty()) {
                     append("Ngữ cảnh thoại gần nhất (để giữ xưng hô nhất quán):\n")
-                    for ((en, vi) in snapshot) {
-                        append("EN: ").append(en).append(" -> VI: ").append(vi).append('\n')
+                    for ((src, vi) in snapshot) {
+                        append("Gốc: ").append(src).append(" -> VI: ").append(vi).append('\n')
                     }
                     append('\n')
                 }
             }
-            append("Dịch câu thoại sau sang tiếng Việt:\n")
-            append(englishText)
+            append("Dịch câu thoại ${settings.sourceLanguage.vietnameseName} sau sang tiếng Việt:\n")
+            append(sourceText)
         }
 
         val generationConfig = JSONObject().apply {
@@ -527,7 +538,7 @@ class TranslationEngine(private val appContext: Context) {
                 if (call.isCanceled()) return
                 DiagnosticLogStore.warn(appContext, "Lỗi mạng Gemini: ${e.message}")
                 if (allowOfflineFallback) {
-                    translateOffline(englishText, settings, onSuccess) { offlineErr ->
+                    translateOffline(sourceText, settings, onSuccess) { offlineErr ->
                         onError("Lỗi mạng (${e.message}) • Offline: $offlineErr")
                     }
                 } else {
@@ -557,14 +568,14 @@ class TranslationEngine(private val appContext: Context) {
                             if (settings.useContextMemory && translated.isNotEmpty()) {
                                 synchronized(historyLock) {
                                     if (recentHistory.size >= 4) recentHistory.removeFirst()
-                                    recentHistory.addLast(englishText to translated)
+                                    recentHistory.addLast(sourceText to translated)
                                 }
                             }
                             onSuccess(translated, false)
                         } catch (e: Exception) {
                             DiagnosticLogStore.error(appContext, "Lỗi parse JSON Gemini: ${e.message}")
                             if (allowOfflineFallback) {
-                                translateOffline(englishText, settings, onSuccess, onError)
+                                translateOffline(sourceText, settings, onSuccess, onError)
                             } else {
                                 onError("Lỗi đọc JSON: ${e.message}")
                             }
@@ -572,7 +583,7 @@ class TranslationEngine(private val appContext: Context) {
                     } else if (it.code == 429) {
                         markKeyRateLimited(apiKey, keyNum)
                         translateWithGemini(
-                            englishText = englishText,
+                            sourceText = sourceText,
                             settings = settings,
                             keys = keys,
                             triedKeys = triedKeys + apiKey,
@@ -583,7 +594,7 @@ class TranslationEngine(private val appContext: Context) {
                         )
                     } else if (it.code == 400 && allowThinkingConfig) {
                         translateWithGemini(
-                            englishText = englishText,
+                            sourceText = sourceText,
                             settings = settings,
                             keys = keys,
                             triedKeys = triedKeys,
@@ -595,7 +606,7 @@ class TranslationEngine(private val appContext: Context) {
                     } else {
                         DiagnosticLogStore.error(appContext, "Gemini HTTP ${it.code} (Key #$keyNum): ${bodyStr.take(80)}")
                         if (allowOfflineFallback) {
-                            translateOffline(englishText, settings, onSuccess) { offlineErr ->
+                            translateOffline(sourceText, settings, onSuccess) { offlineErr ->
                                 onError("API ${it.code} • Offline: $offlineErr")
                             }
                         } else {
@@ -608,23 +619,24 @@ class TranslationEngine(private val appContext: Context) {
     }
 
     private fun translateOffline(
-        englishText: String,
+        sourceText: String,
         settings: TranslatorSettings,
         onSuccess: (String, Boolean) -> Unit,
         onError: (String) -> Unit
     ) {
-        val translator = getOrCreateOfflineTranslator()
-        isOfflineModelDownloaded { downloaded ->
+        val lang = settings.sourceLanguage
+        val translator = getOrCreateOfflineTranslator(lang)
+        isOfflineModelDownloaded(lang) { downloaded ->
             if (!downloaded) {
-                onError("Chưa tải gói dịch Offline (Anh → Việt) trong màn hình chính!")
+                onError("Chưa tải gói dịch Offline (${lang.shortLabel} → Việt) trong màn hình chính!")
                 return@isOfflineModelDownloaded
             }
 
-            OfflineGameDictionary.lookupExactPhrase(englishText, settings)?.let { exact ->
+            OfflineGameDictionary.lookupExactPhrase(sourceText, settings)?.let { exact ->
                 onSuccess(exact, true)
                 return@isOfflineModelDownloaded
             }
-            val prepared = OfflineGameDictionary.prepareForOffline(englishText, settings)
+            val prepared = OfflineGameDictionary.prepareForOffline(sourceText, settings)
 
             translator.translate(prepared.textForMlKit)
                 .addOnSuccessListener { rawTranslated ->
@@ -638,71 +650,176 @@ class TranslationEngine(private val appContext: Context) {
                     )
                 }
                 .addOnFailureListener { e ->
-                    DiagnosticLogStore.error(appContext, "Lỗi ML Kit Offline: ${e.message}")
+                    DiagnosticLogStore.error(appContext, "Lỗi ML Kit Offline (${lang.shortLabel}): ${e.message}")
                     onError("Lỗi dịch Offline: ${e.message}")
                 }
         }
     }
 
-    private fun protectGlossary(text: String, terms: List<String>): Pair<String, Map<String, String>> {
-        if (terms.isEmpty()) return text to emptyMap()
-        val placeholders = mutableMapOf<String, String>()
-        var prepared = text
-        terms.forEachIndexed { idx, term ->
-            val token = "ZXQ${idx}K"
-            val pattern = Pattern.compile("\\b${Pattern.quote(term)}\\b", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(prepared)
-            if (matcher.find()) {
-                placeholders[token] = term
-                prepared = matcher.replaceAll(token)
+    companion object {
+        private fun requiredRemoteModelCodes(lang: SourceLanguage): List<String> {
+            return if (lang == SourceLanguage.ENGLISH) {
+                listOf(TranslateLanguage.VIETNAMESE)
+            } else {
+                listOf(lang.mlKitCode, TranslateLanguage.VIETNAMESE)
             }
         }
-        return prepared to placeholders
-    }
 
-    private fun restoreGlossary(translated: String, placeholders: Map<String, String>): String {
-        var out = translated
-        for ((token, originalTerm) in placeholders) {
-            out = out.replace(token, originalTerm, ignoreCase = true)
-        }
-        return out
-    }
-
-    companion object {
-        fun isOfflineModelDownloaded(callback: (Boolean) -> Unit) {
+        fun isOfflineModelDownloaded(lang: SourceLanguage, callback: (Boolean) -> Unit) {
             val modelManager = RemoteModelManager.getInstance()
-            val viModel = TranslateRemoteModel.Builder(TranslateLanguage.VIETNAMESE).build()
-            modelManager.isModelDownloaded(viModel)
-                .addOnSuccessListener { callback(it) }
-                .addOnFailureListener { callback(false) }
+            val codes = requiredRemoteModelCodes(lang)
+            val remaining = AtomicInteger(codes.size)
+            val allReady = AtomicBoolean(true)
+
+            for (code in codes) {
+                val model = TranslateRemoteModel.Builder(code).build()
+                modelManager.isModelDownloaded(model)
+                    .addOnSuccessListener { downloaded ->
+                        if (!downloaded) allReady.set(false)
+                        if (remaining.decrementAndGet() == 0) {
+                            callback(allReady.get())
+                        }
+                    }
+                    .addOnFailureListener {
+                        allReady.set(false)
+                        if (remaining.decrementAndGet() == 0) {
+                            callback(false)
+                        }
+                    }
+            }
         }
 
-        fun downloadOfflineModel(
+        /**
+         * Tải gói Offline trực tiếp qua RemoteModelManager và đọc % thực tế từ Android DownloadManager.
+         * Trả về hàm cancel() để dừng bộ đếm tiến trình khi đóng màn hình.
+         */
+        fun downloadOfflineModelWithProgress(
+            context: Context,
+            lang: SourceLanguage,
+            onProgress: (percent: Int, indeterminate: Boolean, statusText: String) -> Unit,
             onSuccess: () -> Unit,
             onError: (String) -> Unit
-        ) {
-            val translator = Translation.getClient(
-                TranslatorOptions.Builder()
-                    .setSourceLanguage(TranslateLanguage.ENGLISH)
-                    .setTargetLanguage(TranslateLanguage.VIETNAMESE)
-                    .build()
-            )
+        ): () -> Unit {
+            val appCtx = context.applicationContext
+            val modelManager = RemoteModelManager.getInstance()
+            val codes = requiredRemoteModelCodes(lang)
             val conditions = DownloadConditions.Builder().build()
-            translator.downloadModelIfNeeded(conditions)
-                .addOnSuccessListener {
-                    translator.close()
-                    onSuccess()
+
+            val mainHandler = Handler(Looper.getMainLooper())
+            val finished = AtomicBoolean(false)
+            val startTimeMs = System.currentTimeMillis()
+            val dm = appCtx.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+
+            val remaining = AtomicInteger(codes.size)
+            val failedMessage = StringBuilder()
+            var pollTick = 0
+
+            val pollRunnable = object : Runnable {
+                override fun run() {
+                    if (finished.get()) return
+                    pollTick++
+                    val elapsedSec = ((System.currentTimeMillis() - startTimeMs) / 1000L).toInt()
+
+                    // Đọc tiến trình thực tế (byte đã tải / tổng byte) từ DownloadManager của hệ thống
+                    var bytesSoFar = 0L
+                    var totalBytes = 0L
+                    var hasActiveEntry = false
+                    var pausedReason = false
+
+                    try {
+                        val query = DownloadManager.Query().setFilterByStatus(
+                            DownloadManager.STATUS_RUNNING or
+                                DownloadManager.STATUS_PENDING or
+                                DownloadManager.STATUS_PAUSED
+                        )
+                        dm?.query(query)?.use { cursor ->
+                            val idxSoFar = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                            val idxTotal = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                            val idxStatus = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                            while (cursor.moveToNext()) {
+                                hasActiveEntry = true
+                                val st = if (idxStatus >= 0) cursor.getInt(idxStatus) else 0
+                                if (st == DownloadManager.STATUS_PAUSED) pausedReason = true
+                                val dl = if (idxSoFar >= 0) cursor.getLong(idxSoFar) else 0L
+                                val tot = if (idxTotal >= 0) cursor.getLong(idxTotal) else 0L
+                                if (dl > 0) bytesSoFar += dl
+                                if (tot > 0) totalBytes += tot
+                            }
+                        }
+                    } catch (_: Exception) {
+                    }
+
+                    if (totalBytes > 0L) {
+                        val pct = ((bytesSoFar * 100L) / totalBytes).toInt().coerceIn(1, 99)
+                        val dlMb = String.format(Locale.US, "%.1f", bytesSoFar / (1024f * 1024f))
+                        val totMb = String.format(Locale.US, "%.1f", totalBytes / (1024f * 1024f))
+                        val state = if (pausedReason) "Đang chờ mạng" else "Đang tải"
+                        onProgress(pct, false, "$state $pct% ($dlMb / $totMb MB)")
+                    } else if (hasActiveEntry) {
+                        onProgress(0, true, "Đang kết nối & chờ DownloadManager... (${elapsedSec}s)")
+                    } else {
+                        onProgress(0, true, "Đang chuẩn bị / giải nén gói ${lang.shortLabel} → Việt... (${elapsedSec}s)")
+                    }
+
+                    // Cứ mỗi 2 giây kiểm tra trực tiếp isOfflineModelDownloaded để tránh bị kẹt callback
+                    if (pollTick % 4 == 0) {
+                        isOfflineModelDownloaded(lang) { ready ->
+                            if (ready && finished.compareAndSet(false, true)) {
+                                mainHandler.post {
+                                    onProgress(100, false, "Hoàn tất 100%!")
+                                    onSuccess()
+                                }
+                            }
+                        }
+                    }
+
+                    if (!finished.get()) {
+                        mainHandler.postDelayed(this, 500L)
+                    }
                 }
-                .addOnFailureListener { e ->
-                    translator.close()
-                    onError(e.message ?: "Không thể tải gói ngôn ngữ Offline")
-                }
+            }
+
+            mainHandler.post(pollRunnable)
+
+            for (code in codes) {
+                val model = TranslateRemoteModel.Builder(code).build()
+                modelManager.download(model, conditions)
+                    .addOnSuccessListener {
+                        if (remaining.decrementAndGet() == 0 && finished.compareAndSet(false, true)) {
+                            mainHandler.removeCallbacks(pollRunnable)
+                            mainHandler.post {
+                                onProgress(100, false, "Hoàn tất 100%!")
+                                onSuccess()
+                            }
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        synchronized(failedMessage) {
+                            if (failedMessage.isEmpty()) {
+                                failedMessage.append(e.message ?: "Không thể tải gói ngôn ngữ")
+                            }
+                        }
+                        if (finished.compareAndSet(false, true)) {
+                            mainHandler.removeCallbacks(pollRunnable)
+                            mainHandler.post {
+                                onError(failedMessage.toString())
+                            }
+                        }
+                    }
+            }
+
+            return {
+                finished.set(true)
+                mainHandler.removeCallbacks(pollRunnable)
+            }
         }
 
-        fun deleteOfflineModel(onDone: (Boolean) -> Unit) {
+        fun deleteOfflineModel(lang: SourceLanguage, onDone: (Boolean) -> Unit) {
             val modelManager = RemoteModelManager.getInstance()
-            val viModel = TranslateRemoteModel.Builder(TranslateLanguage.VIETNAMESE).build()
-            modelManager.deleteDownloadedModel(viModel)
+            // Nếu xóa Anh -> xóa gói Tiếng Việt; nếu xóa Nhật/Trung/Hàn -> chỉ xóa gói ngôn ngữ nguồn đó (giữ lại gói Việt cho ngôn ngữ khác)
+            val codeToDelete = if (lang == SourceLanguage.ENGLISH) TranslateLanguage.VIETNAMESE else lang.mlKitCode
+            val model = TranslateRemoteModel.Builder(codeToDelete).build()
+            modelManager.deleteDownloadedModel(model)
                 .addOnSuccessListener { onDone(true) }
                 .addOnFailureListener { onDone(false) }
         }
