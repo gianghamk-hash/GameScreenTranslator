@@ -115,12 +115,25 @@ data class TranslatorSettings(
 
     fun bgColorInt(): Int = Color.argb(bgAlphaInt(), 11, 15, 23)
 
+    // Tên riêng giữ nguyên (mục không có dấu '=')
     fun glossaryTerms(): List<String> =
         customGlossary
             .split(",", "\n", ";")
             .map { it.trim() }
-            .filter { it.isNotEmpty() }
+            .filter { it.isNotEmpty() && !it.contains("=") }
             .distinct()
+
+    // Từ điển dịch tùy chỉnh dạng "Từ gốc = Nghĩa Việt"
+    fun customReplacements(): List<Pair<String, String>> =
+        customGlossary
+            .split(",", "\n", ";")
+            .mapNotNull { entry ->
+                val idx = entry.indexOf('=')
+                if (idx <= 0 || idx >= entry.length - 1) return@mapNotNull null
+                val src = entry.substring(0, idx).trim()
+                val dst = entry.substring(idx + 1).trim()
+                if (src.isEmpty() || dst.isEmpty()) null else (src to dst)
+            }
 }
 
 object SettingsStore {
