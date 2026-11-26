@@ -115,6 +115,7 @@ class OverlayService : Service() {
     }
     private val deduplicator = TextDeduplicator()
     private lateinit var translationEngine: TranslationEngine
+    private lateinit var subtitleSpeaker: SubtitleSpeaker
 
     @Volatile
     private var settings = TranslatorSettings()
@@ -203,6 +204,7 @@ class OverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         translationEngine = TranslationEngine(applicationContext)
+        subtitleSpeaker = SubtitleSpeaker(applicationContext)
         captureThread = HandlerThread("GameTranslatorCapture", Process.THREAD_PRIORITY_BACKGROUND).apply {
             start()
         }
@@ -324,7 +326,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v2.6 đang chạy")
+            .setContentTitle("Game Screen Translator v2.7 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
@@ -698,6 +700,22 @@ class OverlayService : Service() {
             applyOverlayStyleAndPosition()
             deduplicator.resetFrameSignature()
             Toast.makeText(this, "Vị trí mới: ${nextPos.label}", Toast.LENGTH_SHORT).show()
+        }
+
+        addMenuItem(
+            if (settings.ttsEnabled) "🔊 Đang bật: Đọc phụ đề tiếng Việt" else "🔇 Đang tắt: Đọc phụ đề tiếng Việt",
+            "#FF4ADE80"
+        ) {
+            settings = settings.copy(ttsEnabled = !settings.ttsEnabled)
+            SettingsStore.save(this, settings)
+            if (!settings.ttsEnabled && ::subtitleSpeaker.isInitialized) {
+                subtitleSpeaker.stop()
+            }
+            Toast.makeText(
+                this,
+                if (settings.ttsEnabled) "Đã bật đọc phụ đề tiếng Việt" else "Đã tắt đọc phụ đề",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         addMenuItem("🌐 Ngôn ngữ: ${settings.sourceLanguage.shortLabel} → Việt (chạm đổi)", "#FF38BDF8") {
@@ -1599,6 +1617,9 @@ class OverlayService : Service() {
                 val cached = eval.cachedTranslation ?: return
                 DialogueHistoryStore.add(this, rawText, cached, settings.translationMode == TranslationMode.OFFLINE)
                 showOverlayMessage(cached)
+                if (settings.ttsEnabled && ::subtitleSpeaker.isInitialized) {
+                    subtitleSpeaker.speak(cached, settings.ttsVoiceName, settings.ttsSpeechRate)
+                }
             }
 
             TextDeduplicator.Decision.TRANSLATE -> {
@@ -1620,6 +1641,9 @@ class OverlayService : Service() {
                             translated
                         }
                         showOverlayMessage(display)
+                        if (settings.ttsEnabled && ::subtitleSpeaker.isInitialized) {
+                            subtitleSpeaker.speak(translated, settings.ttsVoiceName, settings.ttsSpeechRate)
+                        }
                     },
                     onError = { err ->
                         if (seq != translationSequence || !isRunning || isSelectingRegion) return@translate
@@ -1659,6 +1683,9 @@ class OverlayService : Service() {
         }
         if (::captureThread.isInitialized) {
             captureThread.quitSafely()
+        }
+        if (::subtitleSpeaker.isInitialized) {
+            subtitleSpeaker.shutdown()
         }
         if (::translationEngine.isInitialized) {
             translationEngine.close()

@@ -104,6 +104,9 @@ data class TranslatorSettings(
     val smartColorMatch: Boolean = true,
     val manualTriggerOnly: Boolean = false,
     val autoFadeBubble: Boolean = true,
+    val ttsEnabled: Boolean = false,
+    val ttsVoiceName: String = "",
+    val ttsSpeechRate: Float = 1.15f,
     val hotkeyTranslate: GamepadHotkey = GamepadHotkey.R3,
     val hotkeyFullScreen: GamepadHotkey = GamepadHotkey.L3,
     val activeProfileName: String = "Mặc định",
@@ -177,6 +180,9 @@ object SettingsStore {
             smartColorMatch = p.getBoolean("SMART_COLOR_MATCH", true),
             manualTriggerOnly = p.getBoolean("MANUAL_TRIGGER_ONLY", false),
             autoFadeBubble = p.getBoolean("AUTO_FADE_BUBBLE", true),
+            ttsEnabled = p.getBoolean("TTS_ENABLED", false),
+            ttsVoiceName = p.getString("TTS_VOICE_NAME", "") ?: "",
+            ttsSpeechRate = p.getFloat("TTS_SPEECH_RATE", 1.15f).coerceIn(0.8f, 1.8f),
             hotkeyTranslate = GamepadHotkey.fromName(p.getString("HOTKEY_TRANSLATE", null), GamepadHotkey.R3),
             hotkeyFullScreen = GamepadHotkey.fromName(p.getString("HOTKEY_FULLSCREEN", null), GamepadHotkey.L3),
             activeProfileName = p.getString("ACTIVE_PROFILE_NAME", "Mặc định") ?: "Mặc định",
@@ -206,6 +212,9 @@ object SettingsStore {
             .putBoolean("SMART_COLOR_MATCH", s.smartColorMatch)
             .putBoolean("MANUAL_TRIGGER_ONLY", s.manualTriggerOnly)
             .putBoolean("AUTO_FADE_BUBBLE", s.autoFadeBubble)
+            .putBoolean("TTS_ENABLED", s.ttsEnabled)
+            .putString("TTS_VOICE_NAME", s.ttsVoiceName)
+            .putFloat("TTS_SPEECH_RATE", s.ttsSpeechRate.coerceIn(0.8f, 1.8f))
             .putString("HOTKEY_TRANSLATE", s.hotkeyTranslate.name)
             .putString("HOTKEY_FULLSCREEN", s.hotkeyFullScreen.name)
             .putString("ACTIVE_PROFILE_NAME", s.activeProfileName)

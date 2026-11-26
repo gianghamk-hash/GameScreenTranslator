@@ -18,6 +18,7 @@ import android.provider.Settings
 import android.util.TypedValue
 import android.view.View
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,6 +42,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -48,11 +50,19 @@ class MainActivity : AppCompatActivity() {
     private val GITHUB_REPO = "GameScreenTranslator"
 
     private lateinit var projectionManager: MediaProjectionManager
+    private lateinit var previewSpeaker: SubtitleSpeaker
 
     // Profile bar
     private lateinit var txtActiveProfile: TextView
     private lateinit var btnSwitchProfile: MaterialButton
     private lateinit var btnSaveProfile: MaterialButton
+
+    // Summaries for the 6 collapsible folder headers
+    private lateinit var summaryEngine: TextView
+    private lateinit var summaryStyle: TextView
+    private lateinit var summaryUi: TextView
+    private lateinit var summaryTts: TextView
+    private lateinit var summaryGamepad: TextView
 
     // Language, Engine & Offline
     private lateinit var chipGroupSourceLang: ChipGroup
@@ -82,6 +92,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var txtBgAlphaLabel: TextView
     private lateinit var sliderBgAlpha: Slider
     private lateinit var chipGroupColor: ChipGroup
+
+    // TTS Offline
+    private lateinit var switchTtsEnabled: MaterialSwitch
+    private lateinit var btnSelectVoice: MaterialButton
+    private lateinit var btnTestVoice: MaterialButton
+    private lateinit var txtTtsRateLabel: TextView
+    private lateinit var sliderTtsRate: Slider
+    private var selectedTtsVoiceName: String = ""
 
     // Gamepad & Stability
     private lateinit var switchManualTriggerOnly: MaterialSwitch
@@ -117,10 +135,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "2.6"
+            val vName = info.versionName ?: "2.7"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v2.6"
+            "v2.7"
         }
     }
 
@@ -129,8 +147,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        previewSpeaker = SubtitleSpeaker(this) {
+            runOnUiThread { updateVoiceButtonLabel() }
+        }
 
         bindViews()
+        setupCollapsibleFolders()
         loadSettingsIntoUi()
         setupListeners()
         refreshOfflineModelStatus()
@@ -148,6 +170,32 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         cancelDownloadPoller?.invoke()
         cancelDownloadPoller = null
+        if (::previewSpeaker.isInitialized) {
+            previewSpeaker.shutdown()
+        }
+    }
+
+    private fun setupCollapsibleFolders() {
+        val sections = listOf(
+            Triple(R.id.headerEngine, R.id.contentEngine, R.id.arrowEngine),
+            Triple(R.id.headerStyle, R.id.contentStyle, R.id.arrowStyle),
+            Triple(R.id.headerUi, R.id.contentUi, R.id.arrowUi),
+            Triple(R.id.headerTts, R.id.contentTts, R.id.arrowTts),
+            Triple(R.id.headerGamepad, R.id.contentGamepad, R.id.arrowGamepad),
+            Triple(R.id.headerTools, R.id.contentTools, R.id.arrowTools)
+        )
+
+        for ((headerId, contentId, arrowId) in sections) {
+            val header = findViewById<View>(headerId)
+            val content = findViewById<View>(contentId)
+            val arrow = findViewById<ImageView>(arrowId)
+
+            header.setOnClickListener {
+                val expanding = content.visibility != View.VISIBLE
+                content.visibility = if (expanding) View.VISIBLE else View.GONE
+                arrow.animate().rotation(if (expanding) 180f else 0f).setDuration(180).start()
+            }
+        }
     }
 
     private fun bindViews() {
@@ -157,6 +205,12 @@ class MainActivity : AppCompatActivity() {
         txtActiveProfile = findViewById(R.id.txtActiveProfile)
         btnSwitchProfile = findViewById(R.id.btnSwitchProfile)
         btnSaveProfile = findViewById(R.id.btnSaveProfile)
+
+        summaryEngine = findViewById(R.id.summaryEngine)
+        summaryStyle = findViewById(R.id.summaryStyle)
+        summaryUi = findViewById(R.id.summaryUi)
+        summaryTts = findViewById(R.id.summaryTts)
+        summaryGamepad = findViewById(R.id.summaryGamepad)
 
         chipGroupSourceLang = findViewById(R.id.chipGroupSourceLang)
         chipGroupMode = findViewById(R.id.chipGroupMode)
@@ -184,6 +238,12 @@ class MainActivity : AppCompatActivity() {
         sliderBgAlpha = findViewById(R.id.sliderBgAlpha)
         chipGroupColor = findViewById(R.id.chipGroupColor)
 
+        switchTtsEnabled = findViewById(R.id.switchTtsEnabled)
+        btnSelectVoice = findViewById(R.id.btnSelectVoice)
+        btnTestVoice = findViewById(R.id.btnTestVoice)
+        txtTtsRateLabel = findViewById(R.id.txtTtsRateLabel)
+        sliderTtsRate = findViewById(R.id.sliderTtsRate)
+
         switchManualTriggerOnly = findViewById(R.id.switchManualTriggerOnly)
         chipGroupHotkeySub = findViewById(R.id.chipGroupHotkeySub)
         chipGroupHotkeyFull = findViewById(R.id.chipGroupHotkeyFull)
@@ -204,6 +264,20 @@ class MainActivity : AppCompatActivity() {
 
         btnSaveProfile.setOnClickListener { showSaveProfileDialog() }
         btnSwitchProfile.setOnClickListener { showSwitchProfileDialog() }
+
+        btnSelectVoice.setOnClickListener { showVoicePickerDialog() }
+        btnTestVoice.setOnClickListener {
+            val rate = sliderTtsRate.value
+            if (!previewSpeaker.isReady) {
+                Toast.makeText(this, "Đang khởi tạo bộ đọc tiếng Việt của Android...", Toast.LENGTH_SHORT).show()
+            } else {
+                previewSpeaker.speak(
+                    "Chúng ta phải rời khỏi Midgar ngay đêm nay!",
+                    selectedTtsVoiceName,
+                    rate
+                )
+            }
+        }
 
         btnEnableGamepadService.setOnClickListener {
             Toast.makeText(
@@ -229,6 +303,44 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showVoicePickerDialog() {
+        val voices = previewSpeaker.getVietnameseVoices()
+        if (voices.isEmpty()) {
+            Toast.makeText(
+                this,
+                "Máy chưa có giọng đọc tiếng Việt. Hãy kiểm tra Cài đặt → Chuyển văn bản thành giọng nói (Google TTS).",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        val labels = mutableListOf("Giọng mặc định hệ thống")
+        voices.forEachIndexed { idx, v ->
+            labels.add(SubtitleSpeaker.friendlyVoiceLabel(v, idx))
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Chọn giọng đọc tiếng Việt (${voices.size} giọng)")
+            .setItems(labels.toTypedArray()) { _, which ->
+                selectedTtsVoiceName = if (which == 0) "" else voices[which - 1].name
+                updateVoiceButtonLabel()
+                updateFolderSummaries()
+                previewSpeaker.speak("Xin chào, đây là giọng đọc phụ đề game của bạn.", selectedTtsVoiceName, sliderTtsRate.value)
+            }
+            .setNegativeButton("Đóng", null)
+            .show()
+    }
+
+    private fun updateVoiceButtonLabel() {
+        val voices = previewSpeaker.getVietnameseVoices()
+        val matchIdx = voices.indexOfFirst { it.name == selectedTtsVoiceName }
+        btnSelectVoice.text = if (selectedTtsVoiceName.isEmpty() || matchIdx < 0) {
+            "Giọng: Mặc định (${voices.size} giọng)"
+        } else {
+            SubtitleSpeaker.friendlyVoiceLabel(voices[matchIdx], matchIdx)
+        }
+    }
+
     private fun selectedSourceLanguage(): SourceLanguage {
         return when (chipGroupSourceLang.checkedChipId) {
             R.id.chipLangJa -> SourceLanguage.JAPANESE
@@ -236,6 +348,21 @@ class MainActivity : AppCompatActivity() {
             R.id.chipLangKo -> SourceLanguage.KOREAN
             else -> SourceLanguage.ENGLISH
         }
+    }
+
+    private fun updateFolderSummaries() {
+        val s = collectSettingsFromUi()
+        summaryEngine.text = "${s.sourceLanguage.shortLabel} → Việt • ${s.translationMode.label}"
+        val dupTag = if (s.antiDuplicate) "Chống lặp BẬT" else "Chống lặp TẮT"
+        summaryStyle.text = "${s.translationStyle.label} • $dupTag"
+        summaryUi.text = "${s.subtitlePositionMode.label} • ${s.subtitleFontSizeSp.toInt()} sp"
+
+        val rateStr = String.format(Locale.US, "%.2fx", s.ttsSpeechRate)
+        txtTtsRateLabel.text = "Tốc độ đọc: $rateStr"
+        summaryTts.text = if (s.ttsEnabled) "Đang bật • Tốc độ $rateStr" else "Đang tắt • Miễn phí 0ms"
+
+        val manualTag = if (s.manualTriggerOnly) " • 0% nháy" else ""
+        summaryGamepad.text = "Thoại: ${s.hotkeyTranslate.label} • Toàn màn: ${s.hotkeyFullScreen.label}$manualTag"
     }
 
     @SuppressLint("BatteryLife")
@@ -449,6 +576,12 @@ class MainActivity : AppCompatActivity() {
 
         switchSmartColorMatch.isChecked = s.smartColorMatch
         switchAutoFadeBubble.isChecked = s.autoFadeBubble
+
+        switchTtsEnabled.isChecked = s.ttsEnabled
+        selectedTtsVoiceName = s.ttsVoiceName
+        sliderTtsRate.value = s.ttsSpeechRate.coerceIn(0.80f, 1.80f)
+        updateVoiceButtonLabel()
+
         switchManualTriggerOnly.isChecked = s.manualTriggerOnly
 
         sliderScanSpeed.value = s.scanIntervalMs.toFloat().coerceIn(300f, 1500f)
@@ -477,19 +610,37 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateSliderLabelsAndPreview()
+        updateFolderSummaries()
     }
 
     private fun setupListeners() {
-        sliderScanSpeed.addOnChangeListener { _, _, _ -> updateSliderLabelsAndPreview() }
-        sliderFontSize.addOnChangeListener { _, _, _ -> updateSliderLabelsAndPreview() }
+        sliderScanSpeed.addOnChangeListener { _, _, _ ->
+            updateSliderLabelsAndPreview()
+            updateFolderSummaries()
+        }
+        sliderFontSize.addOnChangeListener { _, _, _ ->
+            updateSliderLabelsAndPreview()
+            updateFolderSummaries()
+        }
         sliderBgAlpha.addOnChangeListener { _, _, _ -> updateSliderLabelsAndPreview() }
+        sliderTtsRate.addOnChangeListener { _, _, _ -> updateFolderSummaries() }
         chipGroupColor.setOnCheckedStateChangeListener { _, _ -> updateSliderLabelsAndPreview() }
 
         chipGroupSourceLang.setOnCheckedStateChangeListener { _, _ ->
+            updateFolderSummaries()
             if (!isDownloadingOffline) {
                 refreshOfflineModelStatus()
             }
         }
+        chipGroupMode.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
+        chipGroupStyle.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
+        chipGroupSubPos.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
+        chipGroupHotkeySub.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
+        chipGroupHotkeyFull.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
+
+        switchAntiDuplicate.setOnCheckedChangeListener { _, _ -> updateFolderSummaries() }
+        switchTtsEnabled.setOnCheckedChangeListener { _, _ -> updateFolderSummaries() }
+        switchManualTriggerOnly.setOnCheckedChangeListener { _, _ -> updateFolderSummaries() }
 
         btnDownloadOffline.setOnClickListener {
             val lang = selectedSourceLanguage()
@@ -649,6 +800,9 @@ class MainActivity : AppCompatActivity() {
             subtitlePositionMode = posMode,
             smartColorMatch = switchSmartColorMatch.isChecked,
             autoFadeBubble = switchAutoFadeBubble.isChecked,
+            ttsEnabled = switchTtsEnabled.isChecked,
+            ttsVoiceName = selectedTtsVoiceName,
+            ttsSpeechRate = sliderTtsRate.value,
             manualTriggerOnly = switchManualTriggerOnly.isChecked,
             hotkeyTranslate = hotkeySub,
             hotkeyFullScreen = hotkeyFull,
