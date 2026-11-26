@@ -62,7 +62,7 @@
                 android:background="@drawable/bg_icon_badge"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
-                android:text="v2.7"
+                android:text="v2.8"
                 android:textColor="@color/accent_cyan"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -334,6 +334,56 @@
                             android:textColor="@color/text_primary" />
                     </com.google.android.material.chip.ChipGroup>
 
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Nhà cung cấp AI chính (tự dự phòng chéo khi 429):"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12.5sp" />
+
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/chipGroupAiProvider"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        app:selectionRequired="true"
+                        app:singleSelection="true">
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipProviderGemini"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:text="Gemini"
+                            android:textColor="@color/text_primary" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipProviderGroq"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Groq (0.2s)"
+                            android:textColor="@color/accent_green" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipProviderOpenRouter"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="OpenRouter"
+                            android:textColor="@color/text_primary" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipProviderDeepSeek"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="DeepSeek"
+                            android:textColor="@color/text_primary" />
+                    </com.google.android.material.chip.ChipGroup>
+
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
@@ -364,6 +414,42 @@
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/edtModelName"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:singleLine="true"
+                            android:textColor="@color/text_primary" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:hint="API Key Groq / OpenRouter / DeepSeek (dùng chính hoặc dự phòng khi Gemini 429)"
+                        app:boxStrokeColor="@color/accent_green"
+                        app:endIconMode="clear_text">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/edtAltApiKey"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="top"
+                            android:inputType="textMultiLine|textNoSuggestions"
+                            android:maxLines="3"
+                            android:minLines="1"
+                            android:textColor="@color/text_primary" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:hint="Model AI phụ (để trống = tự chọn nhanh nhất: llama-3.3-70b-versatile)"
+                        app:boxStrokeColor="@color/accent_green">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/edtAltModelName"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:singleLine="true"

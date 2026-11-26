@@ -266,6 +266,7 @@ class OverlayService : Service() {
             setupMediaProjection(resultCode, data)
             isRunning = true
             isServiceRunning = true
+            TranslatorTileService.requestTileUpdate(this)
             isPaused = false
             consecutiveNullFrames = 0
             DiagnosticLogStore.info(this, "Bắt đầu dịch game • Chế độ: ${settings.translationMode.label}, Vị trí: ${settings.subtitlePositionMode.label}")
@@ -326,7 +327,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v2.7 đang chạy")
+            .setContentTitle("Game Screen Translator v2.8 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
@@ -1672,6 +1673,7 @@ class OverlayService : Service() {
         super.onDestroy()
         isRunning = false
         isServiceRunning = false
+        TranslatorTileService.requestTileUpdate(this)
         DiagnosticLogStore.info(this, "OverlayService đã tắt gọn")
         try {
             unregisterReceiver(screenWakeReceiver)

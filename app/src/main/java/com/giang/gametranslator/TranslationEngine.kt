@@ -30,10 +30,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Động cơ dịch hợp nhất đa ngôn ngữ (Anh / Nhật / Trung / Hàn → Việt):
- * - Gemini AI: xoay vòng nhiều API Key, Cooldown 35s chống 429, dịch đơn & dịch lô toàn màn hình.
- * - Offline ML Kit: tải qua RemoteModelManager kèm theo dõi % tiến trình thực tế từ DownloadManager.
- * - Từ điển game 0ms (OfflineGameDictionary) cho tiếng Anh & từ điển tùy chỉnh A = B cho mọi ngôn ngữ.
+ * Động cơ dịch hợp nhất đa nhà cung cấp AI + đa ngôn ngữ (Anh / Nhật / Trung / Hàn → Việt):
+ * - Tầng 1: AI chính (Gemini / Groq / OpenRouter / DeepSeek) xoay vòng nhiều Key.
+ * - Tầng 2 (Dự phòng chéo chống 429): Gemini dính 429/lỗi → tự nhảy sang Groq/Alt AI (hoặc ngược lại).
+ * - Tầng 3: Offline ML Kit + từ điển game 0ms (OfflineGameDictionary).
  */
 class TranslationEngine(private val appContext: Context) {
 
@@ -116,9 +116,9 @@ class TranslationEngine(private val appContext: Context) {
         return null
     }
 
-    private fun markKeyRateLimited(key: String, keyNumber: Int) {
+    private fun markKeyRateLimited(providerName: String, key: String, keyNumber: Int) {
         keyCooldownUntil[key] = System.currentTimeMillis() + cooldownDurationMs
-        DiagnosticLogStore.warn(appContext, "API Key #$keyNumber chạm 429 → tạm nghỉ 35s")
+        DiagnosticLogStore.warn(appContext, "$providerName Key #$keyNumber chạm 429 → tạm nghỉ 35s")
     }
 
     // ==================== 1. DỊCH CÂU THOẠI ĐƠN ====================
@@ -128,46 +128,68 @@ class TranslationEngine(private val appContext: Context) {
         onSuccess: (translated: String, usedOffline: Boolean) -> Unit,
         onError: (message: String) -> Unit
     ) {
-        val keys = settings.apiKeys()
-        when (settings.translationMode) {
-            TranslationMode.OFFLINE -> {
-                OfflineGameDictionary.lookupExactPhrase(sourceText, settings)?.let { exact ->
-                    onSuccess(exact, true)
-                    return
-                }
-                translateOffline(sourceText, settings, onSuccess, onError)
+        val allowOffline = settings.translationMode == TranslationMode.HYBRID
+        if (settings.translationMode == TranslationMode.OFFLINE) {
+            OfflineGameDictionary.lookupExactPhrase(sourceText, settings)?.let { exact ->
+                onSuccess(exact, true)
+                return
             }
-            TranslationMode.ONLINE -> {
-                if (keys.isEmpty()) {
-                    onError("Chưa nhập Gemini API Key trong App!")
-                    return
-                }
+            translateOffline(sourceText, settings, onSuccess, onError)
+            return
+        }
+
+        val geminiKeys = settings.apiKeys()
+        val altKeys = settings.altApiKeys()
+
+        if (settings.aiProvider == AiProvider.GEMINI) {
+            if (geminiKeys.isNotEmpty()) {
                 translateWithGemini(
                     sourceText = sourceText,
                     settings = settings,
-                    keys = keys,
+                    keys = geminiKeys,
                     triedKeys = emptySet(),
                     allowThinkingConfig = (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
-                    allowOfflineFallback = false,
+                    allowCrossFallback = altKeys.isNotEmpty(),
+                    allowOfflineFallback = allowOffline,
                     onSuccess = onSuccess,
                     onError = onError
                 )
+            } else if (altKeys.isNotEmpty()) {
+                translateWithOpenAiCompatible(
+                    provider = AiProvider.GROQ,
+                    sourceText = sourceText,
+                    settings = settings,
+                    keys = altKeys,
+                    triedKeys = emptySet(),
+                    allowCrossFallback = false,
+                    allowOfflineFallback = allowOffline,
+                    onSuccess = onSuccess,
+                    onError = onError
+                )
+            } else if (allowOffline) {
+                translateOffline(sourceText, settings, onSuccess, onError)
+            } else {
+                onError("Chưa nhập API Key AI trong App!")
             }
-            TranslationMode.HYBRID -> {
-                if (keys.isEmpty()) {
-                    translateOffline(sourceText, settings, onSuccess, onError)
-                } else {
-                    translateWithGemini(
-                        sourceText = sourceText,
-                        settings = settings,
-                        keys = keys,
-                        triedKeys = emptySet(),
-                        allowThinkingConfig = (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
-                        allowOfflineFallback = true,
-                        onSuccess = onSuccess,
-                        onError = onError
-                    )
-                }
+        } else {
+            // Người dùng chọn Groq / OpenRouter / DeepSeek làm chính
+            val primaryKeys = if (altKeys.isNotEmpty()) altKeys else geminiKeys
+            if (primaryKeys.isNotEmpty()) {
+                translateWithOpenAiCompatible(
+                    provider = settings.aiProvider,
+                    sourceText = sourceText,
+                    settings = settings,
+                    keys = primaryKeys,
+                    triedKeys = emptySet(),
+                    allowCrossFallback = (altKeys.isNotEmpty() && geminiKeys.isNotEmpty()),
+                    allowOfflineFallback = allowOffline,
+                    onSuccess = onSuccess,
+                    onError = onError
+                )
+            } else if (allowOffline) {
+                translateOffline(sourceText, settings, onSuccess, onError)
+            } else {
+                onError("Chưa nhập API Key cho ${settings.aiProvider.label}!")
             }
         }
     }
@@ -184,71 +206,107 @@ class TranslationEngine(private val appContext: Context) {
             return
         }
 
-        val keys = settings.apiKeys()
-        when (settings.translationMode) {
-            TranslationMode.OFFLINE -> {
-                translateBatchOfflineParallel(texts, settings, onSuccess, onError)
-            }
-            TranslationMode.ONLINE -> {
-                if (keys.isEmpty()) {
-                    onError("Chưa nhập Gemini API Key trong App!")
-                    return
-                }
+        val allowOffline = settings.translationMode == TranslationMode.HYBRID
+        if (settings.translationMode == TranslationMode.OFFLINE) {
+            translateBatchOfflineParallel(texts, settings, onSuccess, onError)
+            return
+        }
+
+        val geminiKeys = settings.apiKeys()
+        val altKeys = settings.altApiKeys()
+
+        if (settings.aiProvider == AiProvider.GEMINI) {
+            if (geminiKeys.isNotEmpty()) {
                 translateBatchWithGemini(
                     texts = texts,
                     settings = settings,
-                    keys = keys,
+                    keys = geminiKeys,
                     triedKeys = emptySet(),
                     allowThinkingConfig = (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
-                    allowOfflineFallback = false,
+                    allowCrossFallback = altKeys.isNotEmpty(),
+                    allowOfflineFallback = allowOffline,
                     onSuccess = onSuccess,
                     onError = onError
                 )
+            } else if (altKeys.isNotEmpty()) {
+                translateBatchWithOpenAiCompatible(
+                    provider = AiProvider.GROQ,
+                    texts = texts,
+                    settings = settings,
+                    keys = altKeys,
+                    triedKeys = emptySet(),
+                    allowCrossFallback = false,
+                    allowOfflineFallback = allowOffline,
+                    onSuccess = onSuccess,
+                    onError = onError
+                )
+            } else if (allowOffline) {
+                translateBatchOfflineParallel(texts, settings, onSuccess, onError)
+            } else {
+                onError("Chưa nhập API Key AI trong App!")
             }
-            TranslationMode.HYBRID -> {
-                if (keys.isEmpty()) {
-                    translateBatchOfflineParallel(texts, settings, onSuccess, onError)
-                } else {
-                    translateBatchWithGemini(
-                        texts = texts,
-                        settings = settings,
-                        keys = keys,
-                        triedKeys = emptySet(),
-                        allowThinkingConfig = (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
-                        allowOfflineFallback = true,
-                        onSuccess = onSuccess,
-                        onError = onError
-                    )
-                }
+        } else {
+            val primaryKeys = if (altKeys.isNotEmpty()) altKeys else geminiKeys
+            if (primaryKeys.isNotEmpty()) {
+                translateBatchWithOpenAiCompatible(
+                    provider = settings.aiProvider,
+                    texts = texts,
+                    settings = settings,
+                    keys = primaryKeys,
+                    triedKeys = emptySet(),
+                    allowCrossFallback = (altKeys.isNotEmpty() && geminiKeys.isNotEmpty()),
+                    allowOfflineFallback = allowOffline,
+                    onSuccess = onSuccess,
+                    onError = onError
+                )
+            } else if (allowOffline) {
+                translateBatchOfflineParallel(texts, settings, onSuccess, onError)
+            } else {
+                onError("Chưa nhập API Key cho ${settings.aiProvider.label}!")
             }
         }
     }
 
-    private fun translateBatchWithGemini(
-        texts: List<String>,
-        settings: TranslatorSettings,
-        keys: List<String>,
-        triedKeys: Set<String>,
-        allowThinkingConfig: Boolean,
-        allowOfflineFallback: Boolean,
-        onSuccess: (List<String>, Boolean) -> Unit,
-        onError: (String) -> Unit
-    ) {
-        val picked = pickAvailableKey(keys, triedKeys)
-        if (picked == null) {
-            if (allowOfflineFallback) {
-                DiagnosticLogStore.warn(appContext, "Tất cả Key đang nghỉ 429 → tự chuyển dịch toàn màn hình Offline")
-                translateBatchOfflineParallel(texts, settings, onSuccess, onError)
-            } else {
-                onError("Tất cả API Key đang tạm nghỉ do giới hạn 429, thử lại sau vài giây!")
+    // ==================== PROMPT BUILDERS ====================
+    private fun buildSinglePrompts(sourceText: String, settings: TranslatorSettings): Pair<String, String> {
+        val glossaryTerms = settings.glossaryTerms()
+        val customPairs = settings.customReplacements()
+        val glossaryRule = buildString {
+            if (glossaryTerms.isNotEmpty()) {
+                append("\n- Danh sách tên riêng/thuật ngữ bắt buộc giữ nguyên: ${glossaryTerms.joinToString(", ")}.")
             }
-            return
+            if (customPairs.isNotEmpty()) {
+                append("\n- Thuật ngữ dịch cố định: ${customPairs.joinToString(", ") { "${it.first} -> ${it.second}" }}.")
+            }
         }
-        val (apiKey, keyNum) = picked
 
-        cancelBatchRequest()
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/${settings.modelName}:generateContent?key=$apiKey"
+        val systemText = """
+            Bạn là chuyên gia Việt hóa phụ đề game thời gian thực từ ${settings.sourceLanguage.vietnameseName} sang tiếng Việt.
+            Quy tắc bắt buộc:
+            - ${settings.translationStyle.instruction}
+            - GIỮ NGUYÊN 100% tên nhân vật, tên người, tên địa danh, vùng đất, tổ chức (tuyệt đối không dịch nghĩa đen tên người hay địa danh).$glossaryRule
+            - Nếu có tên người nói ở đầu câu (vd "Cloud: ..."), giữ nguyên định dạng "Tên: ...".
+            - Dịch tự nhiên, súc tích, đúng ngữ cảnh game. Chỉ trả về DUY NHẤT câu tiếng Việt, không ngoặc kép thừa, không giải thích.
+        """.trimIndent()
 
+        val userPrompt = buildString {
+            if (settings.useContextMemory) {
+                val snapshot = synchronized(historyLock) { recentHistory.toList() }
+                if (snapshot.isNotEmpty()) {
+                    append("Ngữ cảnh thoại gần nhất (để giữ xưng hô nhất quán):\n")
+                    for ((src, vi) in snapshot) {
+                        append("Gốc: ").append(src).append(" -> VI: ").append(vi).append('\n')
+                    }
+                    append('\n')
+                }
+            }
+            append("Dịch câu thoại ${settings.sourceLanguage.vietnameseName} sau sang tiếng Việt:\n")
+            append(sourceText)
+        }
+        return systemText to userPrompt
+    }
+
+    private fun buildBatchPrompts(texts: List<String>, settings: TranslatorSettings): Pair<String, String> {
         val glossaryTerms = settings.glossaryTerms()
         val customPairs = settings.customReplacements()
         val glossaryRule = buildString {
@@ -272,6 +330,297 @@ class TranslationEngine(private val appContext: Context) {
                 append('[').append(idx).append("] ").append(s).append('\n')
             }
         }
+        return systemText to userPrompt
+    }
+
+    // ==================== OPENAI-COMPATIBLE (GROQ / OPENROUTER / DEEPSEEK) ====================
+    private fun translateWithOpenAiCompatible(
+        provider: AiProvider,
+        sourceText: String,
+        settings: TranslatorSettings,
+        keys: List<String>,
+        triedKeys: Set<String>,
+        allowCrossFallback: Boolean,
+        allowOfflineFallback: Boolean,
+        onSuccess: (String, Boolean) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val picked = pickAvailableKey(keys, triedKeys)
+        if (picked == null) {
+            if (allowCrossFallback && settings.apiKeys().isNotEmpty()) {
+                DiagnosticLogStore.warn(appContext, "${provider.label} hết lượt 429 → tự chuyển dự phòng sang Gemini")
+                translateWithGemini(
+                    sourceText = sourceText,
+                    settings = settings,
+                    keys = settings.apiKeys(),
+                    triedKeys = emptySet(),
+                    allowThinkingConfig = (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
+                    allowCrossFallback = false,
+                    allowOfflineFallback = allowOfflineFallback,
+                    onSuccess = onSuccess,
+                    onError = onError
+                )
+            } else if (allowOfflineFallback) {
+                translateOffline(sourceText, settings, onSuccess) {
+                    onError("${provider.label} chạm 429 (chưa tải gói Offline dự phòng)")
+                }
+            } else {
+                onError("${provider.label} chạm giới hạn 429, đang tạm nghỉ 35s...")
+            }
+            return
+        }
+
+        val (apiKey, keyNum) = picked
+        cancelActiveRequest()
+
+        val (systemText, userPrompt) = buildSinglePrompts(sourceText, settings)
+        val model = settings.effectiveAltModel(provider)
+
+        val jsonBody = JSONObject().apply {
+            put("model", model)
+            put("temperature", 0.2)
+            put("max_tokens", 256)
+            put("messages", JSONArray().apply {
+                put(JSONObject().put("role", "system").put("content", systemText))
+                put(JSONObject().put("role", "user").put("content", userPrompt))
+            })
+        }
+
+        val reqBuilder = Request.Builder()
+            .url(provider.endpointUrl)
+            .header("Authorization", "Bearer $apiKey")
+            .post(jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+
+        if (provider == AiProvider.OPENROUTER) {
+            reqBuilder.header("HTTP-Referer", "https://github.com/gianghamk-hash/GameScreenTranslator")
+            reqBuilder.header("X-Title", "GameScreenTranslator")
+        }
+
+        val call = httpClient.newCall(reqBuilder.build())
+        activeCall = call
+
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (call.isCanceled()) return
+                DiagnosticLogStore.warn(appContext, "Lỗi mạng ${provider.label}: ${e.message}")
+                if (allowCrossFallback && settings.apiKeys().isNotEmpty()) {
+                    translateWithGemini(
+                        sourceText, settings, settings.apiKeys(), emptySet(),
+                        (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
+                        false, allowOfflineFallback, onSuccess, onError
+                    )
+                } else if (allowOfflineFallback) {
+                    translateOffline(sourceText, settings, onSuccess) { offErr ->
+                        onError("Lỗi mạng (${e.message}) • Offline: $offErr")
+                    }
+                } else {
+                    onError("Lỗi mạng ${provider.label}: ${e.message}")
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (call.isCanceled()) {
+                    response.close()
+                    return
+                }
+                response.use {
+                    val bodyStr = it.body?.string() ?: ""
+                    if (it.isSuccessful) {
+                        try {
+                            val json = JSONObject(bodyStr)
+                            val translated = json.getJSONArray("choices")
+                                .getJSONObject(0)
+                                .getJSONObject("message")
+                                .getString("content")
+                                .trim()
+                                .removeSurrounding("\"")
+
+                            if (settings.useContextMemory && translated.isNotEmpty()) {
+                                synchronized(historyLock) {
+                                    if (recentHistory.size >= 4) recentHistory.removeFirst()
+                                    recentHistory.addLast(sourceText to translated)
+                                }
+                            }
+                            onSuccess(translated, false)
+                        } catch (e: Exception) {
+                            DiagnosticLogStore.error(appContext, "Lỗi JSON ${provider.label}: ${e.message}")
+                            if (allowOfflineFallback) {
+                                translateOffline(sourceText, settings, onSuccess, onError)
+                            } else {
+                                onError("Lỗi đọc phản hồi ${provider.label}: ${e.message}")
+                            }
+                        }
+                    } else if (it.code == 429) {
+                        markKeyRateLimited(provider.label, apiKey, keyNum)
+                        translateWithOpenAiCompatible(
+                            provider, sourceText, settings, keys, triedKeys + apiKey,
+                            allowCrossFallback, allowOfflineFallback, onSuccess, onError
+                        )
+                    } else {
+                        DiagnosticLogStore.error(appContext, "${provider.label} HTTP ${it.code}: ${bodyStr.take(80)}")
+                        if (allowCrossFallback && settings.apiKeys().isNotEmpty()) {
+                            translateWithGemini(
+                                sourceText, settings, settings.apiKeys(), emptySet(),
+                                (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
+                                false, allowOfflineFallback, onSuccess, onError
+                            )
+                        } else if (allowOfflineFallback) {
+                            translateOffline(sourceText, settings, onSuccess) { offErr ->
+                                onError("${provider.label} ${it.code} • Offline: $offErr")
+                            }
+                        } else {
+                            onError("Lỗi ${provider.label} ${it.code}: ${bodyStr.take(90)}")
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    private fun translateBatchWithOpenAiCompatible(
+        provider: AiProvider,
+        texts: List<String>,
+        settings: TranslatorSettings,
+        keys: List<String>,
+        triedKeys: Set<String>,
+        allowCrossFallback: Boolean,
+        allowOfflineFallback: Boolean,
+        onSuccess: (List<String>, Boolean) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val picked = pickAvailableKey(keys, triedKeys)
+        if (picked == null) {
+            if (allowCrossFallback && settings.apiKeys().isNotEmpty()) {
+                translateBatchWithGemini(
+                    texts, settings, settings.apiKeys(), emptySet(),
+                    (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
+                    false, allowOfflineFallback, onSuccess, onError
+                )
+            } else if (allowOfflineFallback) {
+                translateBatchOfflineParallel(texts, settings, onSuccess, onError)
+            } else {
+                onError("${provider.label} chạm giới hạn 429, thử lại sau vài giây!")
+            }
+            return
+        }
+
+        val (apiKey, keyNum) = picked
+        cancelBatchRequest()
+
+        val (systemText, userPrompt) = buildBatchPrompts(texts, settings)
+        val model = settings.effectiveAltModel(provider)
+
+        val jsonBody = JSONObject().apply {
+            put("model", model)
+            put("temperature", 0.1)
+            put("max_tokens", 1024)
+            put("messages", JSONArray().apply {
+                put(JSONObject().put("role", "system").put("content", systemText))
+                put(JSONObject().put("role", "user").put("content", userPrompt))
+            })
+        }
+
+        val reqBuilder = Request.Builder()
+            .url(provider.endpointUrl)
+            .header("Authorization", "Bearer $apiKey")
+            .post(jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+
+        if (provider == AiProvider.OPENROUTER) {
+            reqBuilder.header("HTTP-Referer", "https://github.com/gianghamk-hash/GameScreenTranslator")
+            reqBuilder.header("X-Title", "GameScreenTranslator")
+        }
+
+        val call = httpClient.newCall(reqBuilder.build())
+        activeBatchCall = call
+
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (call.isCanceled()) return
+                if (allowOfflineFallback) {
+                    translateBatchOfflineParallel(texts, settings, onSuccess, onError)
+                } else {
+                    onError("Lỗi mạng ${provider.label}: ${e.message}")
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (call.isCanceled()) {
+                    response.close()
+                    return
+                }
+                response.use {
+                    val bodyStr = it.body?.string() ?: ""
+                    if (it.isSuccessful) {
+                        try {
+                            val json = JSONObject(bodyStr)
+                            val rawOut = json.getJSONArray("choices")
+                                .getJSONObject(0)
+                                .getJSONObject("message")
+                                .getString("content")
+                                .trim()
+                            onSuccess(parseIndexedBatchOutput(rawOut, texts), false)
+                        } catch (e: Exception) {
+                            if (allowOfflineFallback) {
+                                translateBatchOfflineParallel(texts, settings, onSuccess, onError)
+                            } else {
+                                onError("Lỗi đọc kết quả ${provider.label}: ${e.message}")
+                            }
+                        }
+                    } else if (it.code == 429) {
+                        markKeyRateLimited(provider.label, apiKey, keyNum)
+                        translateBatchWithOpenAiCompatible(
+                            provider, texts, settings, keys, triedKeys + apiKey,
+                            allowCrossFallback, allowOfflineFallback, onSuccess, onError
+                        )
+                    } else if (allowCrossFallback && settings.apiKeys().isNotEmpty()) {
+                        translateBatchWithGemini(
+                            texts, settings, settings.apiKeys(), emptySet(),
+                            (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
+                            false, allowOfflineFallback, onSuccess, onError
+                        )
+                    } else if (allowOfflineFallback) {
+                        translateBatchOfflineParallel(texts, settings, onSuccess, onError)
+                    } else {
+                        onError("Lỗi ${provider.label} ${it.code}: ${bodyStr.take(90)}")
+                    }
+                }
+            }
+        })
+    }
+
+    // ==================== GEMINI API ====================
+    private fun translateBatchWithGemini(
+        texts: List<String>,
+        settings: TranslatorSettings,
+        keys: List<String>,
+        triedKeys: Set<String>,
+        allowThinkingConfig: Boolean,
+        allowCrossFallback: Boolean,
+        allowOfflineFallback: Boolean,
+        onSuccess: (List<String>, Boolean) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val picked = pickAvailableKey(keys, triedKeys)
+        if (picked == null) {
+            if (allowCrossFallback && settings.altApiKeys().isNotEmpty()) {
+                DiagnosticLogStore.warn(appContext, "Gemini chạm 429 → tự chuyển dự phòng sang Groq")
+                translateBatchWithOpenAiCompatible(
+                    AiProvider.GROQ, texts, settings, settings.altApiKeys(), emptySet(),
+                    false, allowOfflineFallback, onSuccess, onError
+                )
+            } else if (allowOfflineFallback) {
+                DiagnosticLogStore.warn(appContext, "Tất cả Key đang nghỉ 429 → tự chuyển dịch toàn màn hình Offline")
+                translateBatchOfflineParallel(texts, settings, onSuccess, onError)
+            } else {
+                onError("Tất cả API Key đang tạm nghỉ do giới hạn 429, thử lại sau vài giây!")
+            }
+            return
+        }
+        val (apiKey, keyNum) = picked
+
+        cancelBatchRequest()
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/${settings.modelName}:generateContent?key=$apiKey"
+        val (systemText, userPrompt) = buildBatchPrompts(texts, settings)
 
         val generationConfig = JSONObject().apply {
             put("temperature", 0.1)
@@ -305,7 +654,12 @@ class TranslationEngine(private val appContext: Context) {
             override fun onFailure(call: Call, e: IOException) {
                 if (call.isCanceled()) return
                 DiagnosticLogStore.warn(appContext, "Lỗi mạng dịch toàn màn hình: ${e.message}")
-                if (allowOfflineFallback) {
+                if (allowCrossFallback && settings.altApiKeys().isNotEmpty()) {
+                    translateBatchWithOpenAiCompatible(
+                        AiProvider.GROQ, texts, settings, settings.altApiKeys(), emptySet(),
+                        false, allowOfflineFallback, onSuccess, onError
+                    )
+                } else if (allowOfflineFallback) {
                     translateBatchOfflineParallel(texts, settings, onSuccess) { offErr ->
                         onError("Lỗi mạng (${e.message}) • Offline: $offErr")
                     }
@@ -332,8 +686,7 @@ class TranslationEngine(private val appContext: Context) {
                                 .getString("text")
                                 .trim()
 
-                            val parsed = parseIndexedBatchOutput(rawOut, texts)
-                            onSuccess(parsed, false)
+                            onSuccess(parseIndexedBatchOutput(rawOut, texts), false)
                         } catch (e: Exception) {
                             DiagnosticLogStore.error(appContext, "Lỗi parse JSON toàn màn hình: ${e.message}")
                             if (allowOfflineFallback) {
@@ -343,31 +696,24 @@ class TranslationEngine(private val appContext: Context) {
                             }
                         }
                     } else if (it.code == 429) {
-                        markKeyRateLimited(apiKey, keyNum)
+                        markKeyRateLimited("Gemini", apiKey, keyNum)
                         translateBatchWithGemini(
-                            texts = texts,
-                            settings = settings,
-                            keys = keys,
-                            triedKeys = triedKeys + apiKey,
-                            allowThinkingConfig = allowThinkingConfig,
-                            allowOfflineFallback = allowOfflineFallback,
-                            onSuccess = onSuccess,
-                            onError = onError
+                            texts, settings, keys, triedKeys + apiKey,
+                            allowThinkingConfig, allowCrossFallback, allowOfflineFallback, onSuccess, onError
                         )
                     } else if (it.code == 400 && allowThinkingConfig) {
                         translateBatchWithGemini(
-                            texts = texts,
-                            settings = settings,
-                            keys = keys,
-                            triedKeys = triedKeys,
-                            allowThinkingConfig = false,
-                            allowOfflineFallback = allowOfflineFallback,
-                            onSuccess = onSuccess,
-                            onError = onError
+                            texts, settings, keys, triedKeys,
+                            false, allowCrossFallback, allowOfflineFallback, onSuccess, onError
                         )
                     } else {
                         DiagnosticLogStore.error(appContext, "Batch API HTTP ${it.code} (Key #$keyNum)")
-                        if (allowOfflineFallback) {
+                        if (allowCrossFallback && settings.altApiKeys().isNotEmpty()) {
+                            translateBatchWithOpenAiCompatible(
+                                AiProvider.GROQ, texts, settings, settings.altApiKeys(), emptySet(),
+                                false, allowOfflineFallback, onSuccess, onError
+                            )
+                        } else if (allowOfflineFallback) {
                             translateBatchOfflineParallel(texts, settings, onSuccess) { offErr ->
                                 onError("API ${it.code} • Offline: $offErr")
                             }
@@ -450,13 +796,20 @@ class TranslationEngine(private val appContext: Context) {
         keys: List<String>,
         triedKeys: Set<String>,
         allowThinkingConfig: Boolean,
+        allowCrossFallback: Boolean,
         allowOfflineFallback: Boolean,
         onSuccess: (String, Boolean) -> Unit,
         onError: (String) -> Unit
     ) {
         val picked = pickAvailableKey(keys, triedKeys)
         if (picked == null) {
-            if (allowOfflineFallback) {
+            if (allowCrossFallback && settings.altApiKeys().isNotEmpty()) {
+                DiagnosticLogStore.warn(appContext, "Gemini chạm 429 → tự chuyển dự phòng sang Groq AI")
+                translateWithOpenAiCompatible(
+                    AiProvider.GROQ, sourceText, settings, settings.altApiKeys(), emptySet(),
+                    false, allowOfflineFallback, onSuccess, onError
+                )
+            } else if (allowOfflineFallback) {
                 translateOffline(sourceText, settings, onSuccess) {
                     onError("Đang tạm nghỉ 429 (chưa tải gói Offline dự phòng)")
                 }
@@ -469,41 +822,7 @@ class TranslationEngine(private val appContext: Context) {
 
         cancelActiveRequest()
         val url = "https://generativelanguage.googleapis.com/v1beta/models/${settings.modelName}:generateContent?key=$apiKey"
-
-        val glossaryTerms = settings.glossaryTerms()
-        val customPairs = settings.customReplacements()
-        val glossaryRule = buildString {
-            if (glossaryTerms.isNotEmpty()) {
-                append("\n- Danh sách tên riêng/thuật ngữ bắt buộc giữ nguyên: ${glossaryTerms.joinToString(", ")}.")
-            }
-            if (customPairs.isNotEmpty()) {
-                append("\n- Thuật ngữ dịch cố định: ${customPairs.joinToString(", ") { "${it.first} -> ${it.second}" }}.")
-            }
-        }
-
-        val systemText = """
-            Bạn là chuyên gia Việt hóa phụ đề game thời gian thực từ ${settings.sourceLanguage.vietnameseName} sang tiếng Việt.
-            Quy tắc bắt buộc:
-            - ${settings.translationStyle.instruction}
-            - GIỮ NGUYÊN 100% tên nhân vật, tên người, tên địa danh, vùng đất, tổ chức (tuyệt đối không dịch nghĩa đen tên người hay địa danh).$glossaryRule
-            - Nếu có tên người nói ở đầu câu (vd "Cloud: ..."), giữ nguyên định dạng "Tên: ...".
-            - Dịch tự nhiên, súc tích, đúng ngữ cảnh game. Chỉ trả về DUY NHẤT câu tiếng Việt, không ngoặc kép thừa, không giải thích.
-        """.trimIndent()
-
-        val userPrompt = buildString {
-            if (settings.useContextMemory) {
-                val snapshot = synchronized(historyLock) { recentHistory.toList() }
-                if (snapshot.isNotEmpty()) {
-                    append("Ngữ cảnh thoại gần nhất (để giữ xưng hô nhất quán):\n")
-                    for ((src, vi) in snapshot) {
-                        append("Gốc: ").append(src).append(" -> VI: ").append(vi).append('\n')
-                    }
-                    append('\n')
-                }
-            }
-            append("Dịch câu thoại ${settings.sourceLanguage.vietnameseName} sau sang tiếng Việt:\n")
-            append(sourceText)
-        }
+        val (systemText, userPrompt) = buildSinglePrompts(sourceText, settings)
 
         val generationConfig = JSONObject().apply {
             put("temperature", 0.2)
@@ -537,7 +856,12 @@ class TranslationEngine(private val appContext: Context) {
             override fun onFailure(call: Call, e: IOException) {
                 if (call.isCanceled()) return
                 DiagnosticLogStore.warn(appContext, "Lỗi mạng Gemini: ${e.message}")
-                if (allowOfflineFallback) {
+                if (allowCrossFallback && settings.altApiKeys().isNotEmpty()) {
+                    translateWithOpenAiCompatible(
+                        AiProvider.GROQ, sourceText, settings, settings.altApiKeys(), emptySet(),
+                        false, allowOfflineFallback, onSuccess, onError
+                    )
+                } else if (allowOfflineFallback) {
                     translateOffline(sourceText, settings, onSuccess) { offlineErr ->
                         onError("Lỗi mạng (${e.message}) • Offline: $offlineErr")
                     }
@@ -581,31 +905,24 @@ class TranslationEngine(private val appContext: Context) {
                             }
                         }
                     } else if (it.code == 429) {
-                        markKeyRateLimited(apiKey, keyNum)
+                        markKeyRateLimited("Gemini", apiKey, keyNum)
                         translateWithGemini(
-                            sourceText = sourceText,
-                            settings = settings,
-                            keys = keys,
-                            triedKeys = triedKeys + apiKey,
-                            allowThinkingConfig = allowThinkingConfig,
-                            allowOfflineFallback = allowOfflineFallback,
-                            onSuccess = onSuccess,
-                            onError = onError
+                            sourceText, settings, keys, triedKeys + apiKey,
+                            allowThinkingConfig, allowCrossFallback, allowOfflineFallback, onSuccess, onError
                         )
                     } else if (it.code == 400 && allowThinkingConfig) {
                         translateWithGemini(
-                            sourceText = sourceText,
-                            settings = settings,
-                            keys = keys,
-                            triedKeys = triedKeys,
-                            allowThinkingConfig = false,
-                            allowOfflineFallback = allowOfflineFallback,
-                            onSuccess = onSuccess,
-                            onError = onError
+                            sourceText, settings, keys, triedKeys,
+                            false, allowCrossFallback, allowOfflineFallback, onSuccess, onError
                         )
                     } else {
                         DiagnosticLogStore.error(appContext, "Gemini HTTP ${it.code} (Key #$keyNum): ${bodyStr.take(80)}")
-                        if (allowOfflineFallback) {
+                        if (allowCrossFallback && settings.altApiKeys().isNotEmpty()) {
+                            translateWithOpenAiCompatible(
+                                AiProvider.GROQ, sourceText, settings, settings.altApiKeys(), emptySet(),
+                                false, allowOfflineFallback, onSuccess, onError
+                            )
+                        } else if (allowOfflineFallback) {
                             translateOffline(sourceText, settings, onSuccess) { offlineErr ->
                                 onError("API ${it.code} • Offline: $offlineErr")
                             }
@@ -689,10 +1006,6 @@ class TranslationEngine(private val appContext: Context) {
             }
         }
 
-        /**
-         * Tải gói Offline trực tiếp qua RemoteModelManager và đọc % thực tế từ Android DownloadManager.
-         * Trả về hàm cancel() để dừng bộ đếm tiến trình khi đóng màn hình.
-         */
         fun downloadOfflineModelWithProgress(
             context: Context,
             lang: SourceLanguage,
@@ -720,7 +1033,6 @@ class TranslationEngine(private val appContext: Context) {
                     pollTick++
                     val elapsedSec = ((System.currentTimeMillis() - startTimeMs) / 1000L).toInt()
 
-                    // Đọc tiến trình thực tế (byte đã tải / tổng byte) từ DownloadManager của hệ thống
                     var bytesSoFar = 0L
                     var totalBytes = 0L
                     var hasActiveEntry = false
@@ -761,7 +1073,6 @@ class TranslationEngine(private val appContext: Context) {
                         onProgress(0, true, "Đang chuẩn bị / giải nén gói ${lang.shortLabel} → Việt... (${elapsedSec}s)")
                     }
 
-                    // Cứ mỗi 2 giây kiểm tra trực tiếp isOfflineModelDownloaded để tránh bị kẹt callback
                     if (pollTick % 4 == 0) {
                         isOfflineModelDownloaded(lang) { ready ->
                             if (ready && finished.compareAndSet(false, true)) {
@@ -816,7 +1127,6 @@ class TranslationEngine(private val appContext: Context) {
 
         fun deleteOfflineModel(lang: SourceLanguage, onDone: (Boolean) -> Unit) {
             val modelManager = RemoteModelManager.getInstance()
-            // Nếu xóa Anh -> xóa gói Tiếng Việt; nếu xóa Nhật/Trung/Hàn -> chỉ xóa gói ngôn ngữ nguồn đó (giữ lại gói Việt cho ngôn ngữ khác)
             val codeToDelete = if (lang == SourceLanguage.ENGLISH) TranslateLanguage.VIETNAMESE else lang.mlKitCode
             val model = TranslateRemoteModel.Builder(codeToDelete).build()
             modelManager.deleteDownloadedModel(model)

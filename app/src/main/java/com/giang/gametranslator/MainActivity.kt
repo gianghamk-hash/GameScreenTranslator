@@ -67,8 +67,11 @@ class MainActivity : AppCompatActivity() {
     // Language, Engine & Offline
     private lateinit var chipGroupSourceLang: ChipGroup
     private lateinit var chipGroupMode: ChipGroup
+    private lateinit var chipGroupAiProvider: ChipGroup
     private lateinit var edtApiKey: TextInputEditText
     private lateinit var edtModelName: TextInputEditText
+    private lateinit var edtAltApiKey: TextInputEditText
+    private lateinit var edtAltModelName: TextInputEditText
     private lateinit var txtOfflinePackTitle: TextView
     private lateinit var txtOfflineStatus: TextView
     private lateinit var btnDownloadOffline: MaterialButton
@@ -135,10 +138,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "2.7"
+            val vName = info.versionName ?: "2.8"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v2.7"
+            "v2.8"
         }
     }
 
@@ -158,6 +161,11 @@ class MainActivity : AppCompatActivity() {
         refreshOfflineModelStatus()
 
         checkForOtaUpdate(silent = true)
+
+        if (intent?.getBooleanExtra(TranslatorTileService.EXTRA_AUTO_START, false) == true) {
+            intent.removeExtra(TranslatorTileService.EXTRA_AUTO_START)
+            checkPermissionsAndStart()
+        }
     }
 
     override fun onResume() {
@@ -214,8 +222,11 @@ class MainActivity : AppCompatActivity() {
 
         chipGroupSourceLang = findViewById(R.id.chipGroupSourceLang)
         chipGroupMode = findViewById(R.id.chipGroupMode)
+        chipGroupAiProvider = findViewById(R.id.chipGroupAiProvider)
         edtApiKey = findViewById(R.id.edtApiKey)
         edtModelName = findViewById(R.id.edtModelName)
+        edtAltApiKey = findViewById(R.id.edtAltApiKey)
+        edtAltModelName = findViewById(R.id.edtAltModelName)
         txtOfflinePackTitle = findViewById(R.id.txtOfflinePackTitle)
         txtOfflineStatus = findViewById(R.id.txtOfflineStatus)
         btnDownloadOffline = findViewById(R.id.btnDownloadOffline)
@@ -352,7 +363,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateFolderSummaries() {
         val s = collectSettingsFromUi()
-        summaryEngine.text = "${s.sourceLanguage.shortLabel} → Việt • ${s.translationMode.label}"
+        summaryEngine.text = "${s.sourceLanguage.shortLabel} → Việt • ${s.aiProvider.label} • ${s.translationMode.label}"
         val dupTag = if (s.antiDuplicate) "Chống lặp BẬT" else "Chống lặp TẮT"
         summaryStyle.text = "${s.translationStyle.label} • $dupTag"
         summaryUi.text = "${s.subtitlePositionMode.label} • ${s.subtitleFontSizeSp.toInt()} sp"
@@ -554,8 +565,16 @@ class MainActivity : AppCompatActivity() {
             TranslationMode.OFFLINE -> chipGroupMode.check(R.id.chipModeOffline)
         }
 
+        when (s.aiProvider) {
+            AiProvider.GROQ -> chipGroupAiProvider.check(R.id.chipProviderGroq)
+            AiProvider.OPENROUTER -> chipGroupAiProvider.check(R.id.chipProviderOpenRouter)
+            AiProvider.DEEPSEEK -> chipGroupAiProvider.check(R.id.chipProviderDeepSeek)
+            AiProvider.GEMINI -> chipGroupAiProvider.check(R.id.chipProviderGemini)
+        }
         edtApiKey.setText(s.apiKey)
         edtModelName.setText(s.modelName)
+        edtAltApiKey.setText(s.altApiKey)
+        edtAltModelName.setText(s.altModelName)
 
         when (s.translationStyle) {
             TranslationStyle.RPG_FANTASY -> chipGroupStyle.check(R.id.chipStyleRpg)
@@ -633,6 +652,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         chipGroupMode.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
+        chipGroupAiProvider.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
         chipGroupStyle.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
         chipGroupSubPos.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
         chipGroupHotkeySub.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
@@ -788,11 +808,21 @@ class MainActivity : AppCompatActivity() {
             else -> GamepadHotkey.L3
         }
 
+        val provider = when (chipGroupAiProvider.checkedChipId) {
+            R.id.chipProviderGroq -> AiProvider.GROQ
+            R.id.chipProviderOpenRouter -> AiProvider.OPENROUTER
+            R.id.chipProviderDeepSeek -> AiProvider.DEEPSEEK
+            else -> AiProvider.GEMINI
+        }
+
         val current = SettingsStore.load(this)
         return current.copy(
+            aiProvider = provider,
             apiKey = edtApiKey.text?.toString()?.trim() ?: "",
+            altApiKey = edtAltApiKey.text?.toString()?.trim() ?: "",
             modelName = edtModelName.text?.toString()?.trim()?.ifEmpty { "gemini-3.5-flash-lite" }
                 ?: "gemini-3.5-flash-lite",
+            altModelName = edtAltModelName.text?.toString()?.trim() ?: "",
             sourceLanguage = selectedSourceLanguage(),
             translationMode = mode,
             translationStyle = style,
@@ -854,7 +884,7 @@ class MainActivity : AppCompatActivity() {
     private fun checkPermissionsAndStart() {
         val s = collectSettingsFromUi()
 
-        if (s.translationMode == TranslationMode.ONLINE && s.apiKeys().isEmpty()) {
+        if (s.translationMode == TranslationMode.ONLINE && !s.hasAnyAiKey()) {
             Toast.makeText(this, "Vui lòng dán Gemini API Key hoặc chuyển sang chế độ Offline!", Toast.LENGTH_LONG).show()
             return
         }
@@ -864,7 +894,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (s.translationMode == TranslationMode.HYBRID && s.apiKeys().isEmpty() && !isOfflineDownloaded) {
+        if (s.translationMode == TranslationMode.HYBRID && !s.hasAnyAiKey() && !isOfflineDownloaded) {
             Toast.makeText(this, "Hãy nhập Gemini API Key hoặc tải gói dịch Offline!", Toast.LENGTH_LONG).show()
             return
         }

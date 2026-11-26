@@ -5,6 +5,22 @@ import android.graphics.Color
 import android.view.KeyEvent
 import com.google.mlkit.nl.translate.TranslateLanguage
 
+enum class AiProvider(
+    val label: String,
+    val endpointUrl: String,
+    val defaultModel: String
+) {
+    GEMINI("Gemini", "", "gemini-3.5-flash-lite"),
+    GROQ("Groq (Siêu nhanh)", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
+    OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", "google/gemini-2.0-flash-exp:free"),
+    DEEPSEEK("DeepSeek", "https://api.deepseek.com/chat/completions", "deepseek-chat");
+
+    companion object {
+        fun fromName(name: String?): AiProvider =
+            entries.firstOrNull { it.name == name } ?: GEMINI
+    }
+}
+
 enum class SourceLanguage(
     val shortLabel: String,
     val vietnameseName: String,
@@ -23,7 +39,7 @@ enum class SourceLanguage(
 
 enum class TranslationMode(val label: String) {
     HYBRID("Tự động (AI + Offline)"),
-    ONLINE("Gemini AI"),
+    ONLINE("Chỉ AI"),
     OFFLINE("Chỉ Offline");
 
     companion object {
@@ -94,8 +110,11 @@ enum class GamepadHotkey(val keyCode: Int, val label: String) {
 }
 
 data class TranslatorSettings(
+    val aiProvider: AiProvider = AiProvider.GEMINI,
     val apiKey: String = "",
+    val altApiKey: String = "",
     val modelName: String = "gemini-3.5-flash-lite",
+    val altModelName: String = "",
     val sourceLanguage: SourceLanguage = SourceLanguage.ENGLISH,
     val translationMode: TranslationMode = TranslationMode.HYBRID,
     val translationStyle: TranslationStyle = TranslationStyle.RPG_FANTASY,
@@ -124,9 +143,17 @@ data class TranslatorSettings(
     val coverEngSub: Boolean
         get() = subtitlePositionMode == SubtitlePositionMode.COVER_CROP
 
-    fun apiKeys(): List<String> =
-        apiKey
-            .split("\n", ",", ";")
+    fun apiKeys(): List<String> = splitKeys(apiKey)
+
+    fun altApiKeys(): List<String> = splitKeys(altApiKey)
+
+    fun hasAnyAiKey(): Boolean = apiKeys().isNotEmpty() || altApiKeys().isNotEmpty()
+
+    fun effectiveAltModel(provider: AiProvider): String =
+        altModelName.trim().ifEmpty { provider.defaultModel }
+
+    private fun splitKeys(raw: String): List<String> =
+        raw.split("\n", ",", ";")
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
@@ -167,11 +194,14 @@ object SettingsStore {
         val savedPosName = p.getString("SUBTITLE_POSITION_MODE", null)
         val legacyCover = p.getBoolean("COVER_ENG_SUB", false)
         return TranslatorSettings(
+            aiProvider = AiProvider.fromName(p.getString("AI_PROVIDER", null)),
             apiKey = p.getString("API_KEY", "")?.trim() ?: "",
+            altApiKey = p.getString("ALT_API_KEY", "")?.trim() ?: "",
             modelName = p.getString("MODEL_NAME", "gemini-3.5-flash-lite")
                 ?.trim()
                 ?.let { if (it.isEmpty() || it == "gemini-2.5-flash-lite") "gemini-3.5-flash-lite" else it }
                 ?: "gemini-3.5-flash-lite",
+            altModelName = p.getString("ALT_MODEL_NAME", "")?.trim() ?: "",
             sourceLanguage = SourceLanguage.fromName(p.getString("SOURCE_LANGUAGE", null)),
             translationMode = TranslationMode.fromName(p.getString("TRANSLATION_MODE", null)),
             translationStyle = TranslationStyle.fromName(p.getString("TRANSLATION_STYLE", null)),
@@ -201,8 +231,11 @@ object SettingsStore {
 
     fun save(context: Context, s: TranslatorSettings) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+            .putString("AI_PROVIDER", s.aiProvider.name)
             .putString("API_KEY", s.apiKey.trim())
+            .putString("ALT_API_KEY", s.altApiKey.trim())
             .putString("MODEL_NAME", s.modelName.trim().ifEmpty { "gemini-3.5-flash-lite" })
+            .putString("ALT_MODEL_NAME", s.altModelName.trim())
             .putString("SOURCE_LANGUAGE", s.sourceLanguage.name)
             .putString("TRANSLATION_MODE", s.translationMode.name)
             .putString("TRANSLATION_STYLE", s.translationStyle.name)
