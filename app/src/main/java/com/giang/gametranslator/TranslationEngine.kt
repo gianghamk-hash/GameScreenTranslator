@@ -286,7 +286,8 @@ class TranslationEngine(private val appContext: Context) {
             - ${settings.translationStyle.instruction}
             - GIỮ NGUYÊN 100% tên nhân vật, tên người, tên địa danh, vùng đất, tổ chức (tuyệt đối không dịch nghĩa đen tên người hay địa danh).$glossaryRule
             - Nếu có tên người nói ở đầu câu (vd "Cloud: ..."), giữ nguyên định dạng "Tên: ...".
-            - Dịch tự nhiên, súc tích, đúng ngữ cảnh game. Chỉ trả về DUY NHẤT câu tiếng Việt, không ngoặc kép thừa, không giải thích.
+            - Nếu input là danh sách nhiều lựa chọn đánh số (1. ...\n2. ...\n3. ...), BẮT BUỘC giữ nguyên cấu trúc xuống dòng và đánh số 1., 2., 3. tương ứng từng lựa chọn.
+            - Dịch tự nhiên, súc tích, đúng ngữ cảnh game. Chỉ trả về DUY NHẤT bản dịch tiếng Việt, không ngoặc kép thừa, không giải thích.
         """.trimIndent()
 
         val userPrompt = buildString {
@@ -946,6 +947,45 @@ class TranslationEngine(private val appContext: Context) {
         isOfflineModelDownloaded(lang) { downloaded ->
             if (!downloaded) {
                 onError("Chưa tải gói dịch Offline (${lang.shortLabel} → Việt) trong màn hình chính!")
+                return@isOfflineModelDownloaded
+            }
+
+            val choiceRegex = Regex("^(\\d+\\.)\\s+(.+)$")
+            val rawLines = sourceText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            if (rawLines.size in 2..5 && rawLines.all { choiceRegex.matches(it) }) {
+                val results = Array(rawLines.size) { rawLines[it] }
+                val remaining = AtomicInteger(rawLines.size)
+                rawLines.forEachIndexed { idx, line ->
+                    val match = choiceRegex.find(line)!!
+                    val prefix = match.groupValues[1]
+                    val body = match.groupValues[2].trim()
+                    val exact = OfflineGameDictionary.lookupExactPhrase(body, settings)
+                    if (exact != null) {
+                        results[idx] = "$prefix $exact"
+                        if (remaining.decrementAndGet() == 0) {
+                            onSuccess(results.joinToString("\n"), true)
+                        }
+                    } else {
+                        val preparedLine = OfflineGameDictionary.prepareForOffline(body, settings)
+                        translator.translate(preparedLine.textForMlKit)
+                            .addOnSuccessListener { rawTranslated ->
+                                val vi = OfflineGameDictionary.postProcessOffline(
+                                    rawTranslated,
+                                    preparedLine,
+                                    settings.translationStyle
+                                )
+                                results[idx] = "$prefix $vi"
+                                if (remaining.decrementAndGet() == 0) {
+                                    onSuccess(results.joinToString("\n"), true)
+                                }
+                            }
+                            .addOnFailureListener {
+                                if (remaining.decrementAndGet() == 0) {
+                                    onSuccess(results.joinToString("\n"), true)
+                                }
+                            }
+                    }
+                }
                 return@isOfflineModelDownloaded
             }
 

@@ -82,12 +82,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var edtGlossary: TextInputEditText
     private lateinit var switchAntiDuplicate: MaterialSwitch
     private lateinit var switchContextMemory: MaterialSwitch
+    private lateinit var switchChoiceFormatter: MaterialSwitch
 
     // Position & Appearance
     private lateinit var chipGroupSubPos: ChipGroup
     private lateinit var switchSmartColorMatch: MaterialSwitch
+    private lateinit var switchCinemaOutline: MaterialSwitch
+    private lateinit var switchAutoFitText: MaterialSwitch
     private lateinit var switchAutoFadeBubble: MaterialSwitch
-    private lateinit var txtSubtitlePreview: TextView
+    private lateinit var switchLockBubble: MaterialSwitch
+    private lateinit var txtSubtitlePreview: StrokeTextView
     private lateinit var txtScanSpeedLabel: TextView
     private lateinit var sliderScanSpeed: Slider
     private lateinit var txtFontSizeLabel: TextView
@@ -138,10 +142,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "2.8"
+            val vName = info.versionName ?: "2.9"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v2.8"
+            "v2.9"
         }
     }
 
@@ -236,10 +240,14 @@ class MainActivity : AppCompatActivity() {
         edtGlossary = findViewById(R.id.edtGlossary)
         switchAntiDuplicate = findViewById(R.id.switchAntiDuplicate)
         switchContextMemory = findViewById(R.id.switchContextMemory)
+        switchChoiceFormatter = findViewById(R.id.switchChoiceFormatter)
 
         chipGroupSubPos = findViewById(R.id.chipGroupSubPos)
         switchSmartColorMatch = findViewById(R.id.switchSmartColorMatch)
+        switchCinemaOutline = findViewById(R.id.switchCinemaOutline)
+        switchAutoFitText = findViewById(R.id.switchAutoFitText)
         switchAutoFadeBubble = findViewById(R.id.switchAutoFadeBubble)
+        switchLockBubble = findViewById(R.id.switchLockBubble)
         txtSubtitlePreview = findViewById(R.id.txtSubtitlePreview)
         txtScanSpeedLabel = findViewById(R.id.txtScanSpeedLabel)
         sliderScanSpeed = findViewById(R.id.sliderScanSpeed)
@@ -366,7 +374,8 @@ class MainActivity : AppCompatActivity() {
         summaryEngine.text = "${s.sourceLanguage.shortLabel} → Việt • ${s.aiProvider.label} • ${s.translationMode.label}"
         val dupTag = if (s.antiDuplicate) "Chống lặp BẬT" else "Chống lặp TẮT"
         summaryStyle.text = "${s.translationStyle.label} • $dupTag"
-        summaryUi.text = "${s.subtitlePositionMode.label} • ${s.subtitleFontSizeSp.toInt()} sp"
+        val cinemaTag = if (s.cinemaOutlineMode) " • Viền rạp phim" else ""
+        summaryUi.text = "${s.subtitlePositionMode.label} • ${s.subtitleFontSizeSp.toInt()} sp$cinemaTag"
 
         val rateStr = String.format(Locale.US, "%.2fx", s.ttsSpeechRate)
         txtTtsRateLabel.text = "Tốc độ đọc: $rateStr"
@@ -586,6 +595,7 @@ class MainActivity : AppCompatActivity() {
         edtGlossary.setText(s.customGlossary)
         switchAntiDuplicate.isChecked = s.antiDuplicate
         switchContextMemory.isChecked = s.useContextMemory
+        switchChoiceFormatter.isChecked = s.choiceFormatter
 
         when (s.subtitlePositionMode) {
             SubtitlePositionMode.ABOVE_CROP -> chipGroupSubPos.check(R.id.chipPosAbove)
@@ -594,7 +604,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         switchSmartColorMatch.isChecked = s.smartColorMatch
+        switchCinemaOutline.isChecked = s.cinemaOutlineMode
+        switchAutoFitText.isChecked = s.autoFitTextSize
         switchAutoFadeBubble.isChecked = s.autoFadeBubble
+        switchLockBubble.isChecked = s.lockBubblePosition
 
         switchTtsEnabled.isChecked = s.ttsEnabled
         selectedTtsVoiceName = s.ttsVoiceName
@@ -659,6 +672,10 @@ class MainActivity : AppCompatActivity() {
         chipGroupHotkeyFull.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
 
         switchAntiDuplicate.setOnCheckedChangeListener { _, _ -> updateFolderSummaries() }
+        switchCinemaOutline.setOnCheckedChangeListener { _, _ ->
+            updateSliderLabelsAndPreview()
+            updateFolderSummaries()
+        }
         switchTtsEnabled.setOnCheckedChangeListener { _, _ -> updateFolderSummaries() }
         switchManualTriggerOnly.setOnCheckedChangeListener { _, _ -> updateFolderSummaries() }
 
@@ -829,6 +846,10 @@ class MainActivity : AppCompatActivity() {
             customGlossary = edtGlossary.text?.toString()?.trim() ?: "",
             subtitlePositionMode = posMode,
             smartColorMatch = switchSmartColorMatch.isChecked,
+            cinemaOutlineMode = switchCinemaOutline.isChecked,
+            choiceFormatter = switchChoiceFormatter.isChecked,
+            lockBubblePosition = switchLockBubble.isChecked,
+            autoFitTextSize = switchAutoFitText.isChecked,
             autoFadeBubble = switchAutoFadeBubble.isChecked,
             ttsEnabled = switchTtsEnabled.isChecked,
             ttsVoiceName = selectedTtsVoiceName,
@@ -867,16 +888,24 @@ class MainActivity : AppCompatActivity() {
             else -> SubtitleColor.WHITE.colorInt
         }
 
-        val alpha = ((bgAlphaPct / 100f) * 255f).toInt().coerceIn(100, 255)
         val density = resources.displayMetrics.density
-        val previewBg = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = 12f * density
-            setColor(Color.argb(alpha, 11, 15, 23))
-            setStroke((1f * density).toInt().coerceAtLeast(1), Color.parseColor("#33FFFFFF"))
+        if (switchCinemaOutline.isChecked) {
+            txtSubtitlePreview.background = null
+            txtSubtitlePreview.outlineEnabled = true
+            txtSubtitlePreview.outlineColor = Color.BLACK
+            txtSubtitlePreview.outlineWidthPx = 4.5f * density
+        } else {
+            val alpha = ((bgAlphaPct / 100f) * 255f).toInt().coerceIn(100, 255)
+            val previewBg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f * density
+                setColor(Color.argb(alpha, 11, 15, 23))
+                setStroke((1f * density).toInt().coerceAtLeast(1), Color.parseColor("#33FFFFFF"))
+            }
+            txtSubtitlePreview.outlineEnabled = false
+            txtSubtitlePreview.background = previewBg
         }
 
-        txtSubtitlePreview.background = previewBg
         txtSubtitlePreview.setTextColor(selectedColor)
         txtSubtitlePreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize)
     }

@@ -120,6 +120,10 @@ data class TranslatorSettings(
     val translationStyle: TranslationStyle = TranslationStyle.RPG_FANTASY,
     val customGlossary: String = "",
     val subtitlePositionMode: SubtitlePositionMode = SubtitlePositionMode.ABOVE_CROP,
+    val cinemaOutlineMode: Boolean = false,
+    val choiceFormatter: Boolean = true,
+    val lockBubblePosition: Boolean = false,
+    val autoFitTextSize: Boolean = true,
     val smartColorMatch: Boolean = true,
     val manualTriggerOnly: Boolean = false,
     val autoFadeBubble: Boolean = true,
@@ -207,6 +211,10 @@ object SettingsStore {
             translationStyle = TranslationStyle.fromName(p.getString("TRANSLATION_STYLE", null)),
             customGlossary = p.getString("CUSTOM_GLOSSARY", "") ?: "",
             subtitlePositionMode = SubtitlePositionMode.fromName(savedPosName, legacyCover),
+            cinemaOutlineMode = p.getBoolean("CINEMA_OUTLINE_MODE", false),
+            choiceFormatter = p.getBoolean("CHOICE_FORMATTER", true),
+            lockBubblePosition = p.getBoolean("LOCK_BUBBLE_POSITION", false),
+            autoFitTextSize = p.getBoolean("AUTO_FIT_TEXT_SIZE", true),
             smartColorMatch = p.getBoolean("SMART_COLOR_MATCH", true),
             manualTriggerOnly = p.getBoolean("MANUAL_TRIGGER_ONLY", false),
             autoFadeBubble = p.getBoolean("AUTO_FADE_BUBBLE", true),
@@ -242,6 +250,10 @@ object SettingsStore {
             .putString("CUSTOM_GLOSSARY", s.customGlossary.trim())
             .putString("SUBTITLE_POSITION_MODE", s.subtitlePositionMode.name)
             .putBoolean("COVER_ENG_SUB", s.coverEngSub)
+            .putBoolean("CINEMA_OUTLINE_MODE", s.cinemaOutlineMode)
+            .putBoolean("CHOICE_FORMATTER", s.choiceFormatter)
+            .putBoolean("LOCK_BUBBLE_POSITION", s.lockBubblePosition)
+            .putBoolean("AUTO_FIT_TEXT_SIZE", s.autoFitTextSize)
             .putBoolean("SMART_COLOR_MATCH", s.smartColorMatch)
             .putBoolean("MANUAL_TRIGGER_ONLY", s.manualTriggerOnly)
             .putBoolean("AUTO_FADE_BUBBLE", s.autoFadeBubble)

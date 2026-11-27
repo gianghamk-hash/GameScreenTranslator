@@ -66,7 +66,7 @@ class OverlayService : Service() {
     }
 
     private lateinit var windowManager: WindowManager
-    private lateinit var overlayTextView: TextView
+    private lateinit var overlayTextView: StrokeTextView
     private lateinit var overlayBgDrawable: GradientDrawable
     private lateinit var overlayParams: WindowManager.LayoutParams
     private lateinit var floatingButton: TextView
@@ -327,7 +327,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v2.8 đang chạy")
+            .setContentTitle("Game Screen Translator v2.9 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
@@ -345,7 +345,7 @@ class OverlayService : Service() {
             setStroke((1f * density).toInt().coerceAtLeast(1), Color.parseColor("#33FFFFFF"))
         }
 
-        overlayTextView = TextView(this).apply {
+        overlayTextView = StrokeTextView(this).apply {
             text = "Chạm 🎯 khoanh vùng • Chạm đúp 🎯 dịch toàn màn hình"
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
@@ -369,6 +369,21 @@ class OverlayService : Service() {
     private fun applyOverlayColorsInPlace() {
         if (!::overlayTextView.isInitialized || !::overlayBgDrawable.isInitialized) return
         val density = resources.displayMetrics.density
+
+        if (settings.cinemaOutlineMode && !settings.coverEngSub) {
+            overlayTextView.background = null
+            overlayTextView.outlineEnabled = true
+            overlayTextView.outlineColor = Color.BLACK
+            overlayTextView.outlineWidthPx = 4.5f * density
+            overlayTextView.setTextColor(settings.subtitleColor.colorInt)
+            overlayTextView.setShadowLayer(0f, 0f, 0f, Color.TRANSPARENT)
+            return
+        }
+
+        overlayTextView.outlineEnabled = false
+        if (overlayTextView.background == null) {
+            overlayTextView.background = overlayBgDrawable
+        }
 
         val useSmart = settings.smartColorMatch && sampledBgColor != null
         val effectiveBgColor = if (useSmart) sampledBgColor!! else settings.bgColorInt()
@@ -587,6 +602,9 @@ class OverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    if (settings.lockBubblePosition) {
+                        return@setOnTouchListener true
+                    }
                     val dx = event.rawX - initialTouchX
                     val dy = event.rawY - initialTouchY
                     if (abs(dx) > 12 || abs(dy) > 12) {
@@ -755,6 +773,33 @@ class OverlayService : Service() {
                 scheduleNextCapture()
                 Toast.makeText(this, "Đã chuyển về quét tự động", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        addMenuItem(
+            if (settings.cinemaOutlineMode) "🎬 Đang bật: Phụ đề viền đen không nền" else "🎬 Bật: Phụ đề viền đen không nền",
+            "#FF38BDF8"
+        ) {
+            settings = settings.copy(cinemaOutlineMode = !settings.cinemaOutlineMode)
+            SettingsStore.save(this, settings)
+            applyOverlayColorsInPlace()
+            Toast.makeText(
+                this,
+                if (settings.cinemaOutlineMode) "Đã bật phụ đề trong suốt viền đen!" else "Đã quay lại nền hộp phụ đề",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        addMenuItem(
+            if (settings.lockBubblePosition) "🔒 Đang khóa vị trí nút 🎯 (chạm mở)" else "🔓 Khóa vị trí nút 🎯 (chống kéo nhầm)",
+            "#FFF59E0B"
+        ) {
+            settings = settings.copy(lockBubblePosition = !settings.lockBubblePosition)
+            SettingsStore.save(this, settings)
+            Toast.makeText(
+                this,
+                if (settings.lockBubblePosition) "Đã khóa vị trí nút 🎯 (vẫn chạm/giữ bình thường)" else "Đã mở khóa kéo nút 🎯",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         addMenuItem("🎯 Khoanh lại vùng Eng-Sub") {
@@ -1573,7 +1618,7 @@ class OverlayService : Service() {
 
         getActiveTextRecognizer().process(inputImage)
             .addOnSuccessListener { visionText ->
-                val rawText = visionText.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
+                val rawText = extractFormattedOcrText(visionText, settings.choiceFormatter)
                 bitmapForOcr.recycle()
                 isOcrRunning.set(false)
                 handleRecognizedText(rawText, forceManual)
@@ -1655,6 +1700,65 @@ class OverlayService : Service() {
         }
     }
 
+    /**
+     * Phát hiện bảng chọn đáp án (2–5 dòng lựa chọn riêng biệt) để giữ cấu trúc 1., 2., 3.
+     * thay vì gộp thành 1 đoạn văn liền mạch.
+     */
+    private fun extractFormattedOcrText(
+        visionText: com.google.mlkit.vision.text.Text,
+        choiceFormatterEnabled: Boolean
+    ): String {
+        val flattened = visionText.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
+        if (!choiceFormatterEnabled) return flattened
+
+        val lines = visionText.textBlocks
+            .flatMap { it.lines }
+            .filter { it.text.trim().isNotEmpty() && it.boundingBox != null }
+            .sortedBy { it.boundingBox!!.top }
+
+        if (lines.size !in 2..5) return flattened
+
+        val cleanedTexts = lines.map { it.text.replace(Regex("\\s+"), " ").trim() }
+        val markerRegex = Regex("^(\\d+[\\.):]|\\[\\d+]|\\(\\d+\\)|[A-Da-d][\\.):]|[>•▸►▪■◆◇★☆\-–—])\\s*(.+)$")
+        val markerMatches = cleanedTexts.count { markerRegex.matches(it) }
+
+        var distinctGapCount = 0
+        for (i in 0 until lines.size - 1) {
+            val curBox = lines[i].boundingBox!!
+            val nextBox = lines[i + 1].boundingBox!!
+            val lineH = curBox.height().coerceAtLeast(12)
+            val gap = nextBox.top - curBox.bottom
+            if (gap >= lineH * 0.45f) {
+                distinctGapCount++
+            }
+        }
+
+        val allShort = cleanedTexts.all { it.length <= 65 }
+        val isChoiceList = markerMatches >= 2 ||
+            (lines.size in 2..4 && allShort && distinctGapCount == lines.size - 1)
+
+        if (!isChoiceList) return flattened
+
+        return cleanedTexts.mapIndexed { idx, line ->
+            val match = markerRegex.find(line)
+            val body = match?.groupValues?.get(2)?.trim()?.ifEmpty { line } ?: line
+            "${idx + 1}. $body"
+        }.joinToString("\n")
+    }
+
+    private fun computeEffectiveFontSizeSp(text: String): Float {
+        val base = settings.subtitleFontSizeSp
+        if (!settings.autoFitTextSize) return base
+        val lineCount = text.count { it == '\n' } + 1
+        val len = text.length
+        val scale = when {
+            lineCount >= 4 || len > 130 -> 0.78f
+            lineCount == 3 || len > 70 -> 0.88f
+            else -> 1.0f
+        }
+        return (base * scale).coerceAtLeast(11f)
+    }
+
     private fun showOverlayMessage(text: String) {
         mainHandler.post {
             if (!isSelectingRegion && ::overlayTextView.isInitialized) {
@@ -1662,6 +1766,8 @@ class OverlayService : Service() {
                     return@post
                 }
                 lastDisplayedText = text
+                overlayTextView.gravity = if (text.contains("\n")) Gravity.START else Gravity.CENTER
+                overlayTextView.setTextSize(TypedValue.COMPLEX_UNIT_SP, computeEffectiveFontSizeSp(text))
                 overlayTextView.text = text
                 overlayTextView.visibility = View.VISIBLE
                 hasActiveSubtitle = true

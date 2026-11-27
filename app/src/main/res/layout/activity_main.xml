@@ -62,7 +62,7 @@
                 android:background="@drawable/bg_icon_badge"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
-                android:text="v2.8"
+                android:text="v2.9"
                 android:textColor="@color/accent_cyan"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -677,6 +677,16 @@
                         android:text="Nhớ ngữ cảnh 4 câu thoại gần nhất (giữ xưng hô)"
                         android:textColor="@color/text_primary"
                         android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchChoiceFormatter"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:checked="true"
+                        android:text="Tự tách dòng 1. 2. 3. cho bảng chọn đáp án RPG / VN"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -802,6 +812,26 @@
                         android:textSize="13sp" />
 
                     <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchCinemaOutline"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:checked="false"
+                        android:text="Phụ đề trong suốt viền đen chuẩn rạp phim (bỏ khung nền)"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAutoFitText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:checked="true"
+                        android:text="Tự co nhỏ cỡ chữ khi câu thoại dài (chống tràn khung)"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchAutoFadeBubble"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -811,7 +841,17 @@
                         android:textColor="@color/text_primary"
                         android:textSize="13sp" />
 
-                    <TextView
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchLockBubble"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:checked="false"
+                        android:text="Khóa vị trí nút 🎯 (chống kéo nhầm khi đang combat)"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.giang.gametranslator.StrokeTextView
                         android:id="@+id/txtSubtitlePreview"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -820,7 +860,8 @@
                         android:padding="12dp"
                         android:text="Cloud: Chúng ta phải rời khỏi Midgar ngay đêm nay!"
                         android:textColor="@color/white"
-                        android:textSize="16sp" />
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/txtScanSpeedLabel"
