@@ -80,9 +80,11 @@ class MainActivity : AppCompatActivity() {
     // Style & Deduplication
     private lateinit var chipGroupStyle: ChipGroup
     private lateinit var edtGlossary: TextInputEditText
+    private lateinit var edtOcrBlacklist: TextInputEditText
     private lateinit var switchAntiDuplicate: MaterialSwitch
     private lateinit var switchContextMemory: MaterialSwitch
     private lateinit var switchChoiceFormatter: MaterialSwitch
+    private lateinit var switchVerticalCjk: MaterialSwitch
 
     // Position & Appearance
     private lateinit var chipGroupSubPos: ChipGroup
@@ -112,6 +114,7 @@ class MainActivity : AppCompatActivity() {
 
     // Gamepad & Stability
     private lateinit var switchManualTriggerOnly: MaterialSwitch
+    private lateinit var switchAutoSwitchProfile: MaterialSwitch
     private lateinit var chipGroupHotkeySub: ChipGroup
     private lateinit var chipGroupHotkeyFull: ChipGroup
     private lateinit var btnEnableGamepadService: MaterialButton
@@ -182,10 +185,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "3.0"
+            val vName = info.versionName ?: "3.1"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v3.0"
+            "v3.1"
         }
     }
 
@@ -278,9 +281,11 @@ class MainActivity : AppCompatActivity() {
 
         chipGroupStyle = findViewById(R.id.chipGroupStyle)
         edtGlossary = findViewById(R.id.edtGlossary)
+        edtOcrBlacklist = findViewById(R.id.edtOcrBlacklist)
         switchAntiDuplicate = findViewById(R.id.switchAntiDuplicate)
         switchContextMemory = findViewById(R.id.switchContextMemory)
         switchChoiceFormatter = findViewById(R.id.switchChoiceFormatter)
+        switchVerticalCjk = findViewById(R.id.switchVerticalCjk)
 
         chipGroupSubPos = findViewById(R.id.chipGroupSubPos)
         switchSmartColorMatch = findViewById(R.id.switchSmartColorMatch)
@@ -306,6 +311,7 @@ class MainActivity : AppCompatActivity() {
         sliderTtsRate = findViewById(R.id.sliderTtsRate)
 
         switchManualTriggerOnly = findViewById(R.id.switchManualTriggerOnly)
+        switchAutoSwitchProfile = findViewById(R.id.switchAutoSwitchProfile)
         chipGroupHotkeySub = findViewById(R.id.chipGroupHotkeySub)
         chipGroupHotkeyFull = findViewById(R.id.chipGroupHotkeyFull)
         btnEnableGamepadService = findViewById(R.id.btnEnableGamepadService)
@@ -357,6 +363,10 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnImportBackup).setOnClickListener {
             importBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+        }
+
+        findViewById<MaterialButton>(R.id.btnViewStats).setOnClickListener {
+            showTranslationStatsDialog()
         }
 
         findViewById<MaterialButton>(R.id.btnViewHistory).setOnClickListener {
@@ -471,6 +481,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showTranslationStatsDialog() {
+        val snap = TranslationStatsStore.snapshot(this)
+        AlertDialog.Builder(this)
+            .setTitle("📊 Thống kê tốc độ & tiết kiệm AI")
+            .setMessage(snap.formatReport())
+            .setNeutralButton("Đặt lại số liệu") { _, _ ->
+                TranslationStatsStore.clear(this)
+                Toast.makeText(this, "Đã đặt lại thống kê về 0!", Toast.LENGTH_SHORT).show()
+            }
+            .setPositiveButton("Đóng", null)
+            .show()
+    }
+
     private fun showDiagnosticLogsDialog() {
         val logs = DiagnosticLogStore.getAll(this)
         if (logs.isEmpty()) {
@@ -521,9 +544,9 @@ class MainActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle("Lưu Profile Game")
-            .setMessage("Sẽ lưu ngôn ngữ gốc, vùng thoại, văn phong, tên riêng và vị trí phụ đề.")
+            .setMessage("Sẽ lưu ngôn ngữ gốc, vùng thoại, văn phong, tên riêng và vị trí phụ đề. Có thể liên kết với 1 Game/Giả lập để tự đổi Profile.")
             .setView(input)
-            .setPositiveButton("Lưu") { _, _ ->
+            .setPositiveButton("Lưu nhanh") { _, _ ->
                 val name = input.text.toString().trim()
                 if (name.isEmpty()) {
                     Toast.makeText(this, "Vui lòng nhập tên game!", Toast.LENGTH_SHORT).show()
@@ -534,7 +557,52 @@ class MainActivity : AppCompatActivity() {
                 notifyOverlayReloadIfRunning()
                 Toast.makeText(this, "Đã lưu Profile '$name'!", Toast.LENGTH_SHORT).show()
             }
+            .setNeutralButton("Lưu & Liên kết Game") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isEmpty()) {
+                    Toast.makeText(this, "Vui lòng nhập tên game!", Toast.LENGTH_SHORT).show()
+                    return@setNeutralButton
+                }
+                showLinkGameAppPicker(name, currentSettings)
+            }
             .setNegativeButton("Hủy", null)
+            .show()
+    }
+
+    private fun showLinkGameAppPicker(profileName: String, currentSettings: TranslatorSettings) {
+        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val apps = packageManager.queryIntentActivities(launcherIntent, 0)
+            .mapNotNull { ri ->
+                val pkg = ri.activityInfo?.packageName ?: return@mapNotNull null
+                if (pkg == packageName) return@mapNotNull null
+                val label = ri.loadLabel(packageManager)?.toString()?.trim()?.ifEmpty { pkg } ?: pkg
+                label to pkg
+            }
+            .distinctBy { it.second }
+            .sortedBy { it.first.lowercase() }
+
+        if (apps.isEmpty()) {
+            GameProfileStore.saveFromSettings(this, profileName, currentSettings)
+            txtActiveProfile.text = "🎮 $profileName"
+            Toast.makeText(this, "Đã lưu Profile '$profileName' (không tìm thấy app để liên kết)", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val labels = apps.map { "${it.first} (${it.second})" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Chọn Game/Giả lập để tự đổi sang '$profileName'")
+            .setItems(labels) { _, which ->
+                val (appLabel, pkg) = apps[which]
+                GameProfileStore.saveFromSettings(this, profileName, currentSettings, linkedPackageName = pkg)
+                txtActiveProfile.text = "🎮 $profileName"
+                notifyOverlayReloadIfRunning()
+                Toast.makeText(this, "Đã lưu '$profileName' & liên kết với $appLabel!", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Bỏ qua") { _, _ ->
+                GameProfileStore.saveFromSettings(this, profileName, currentSettings)
+                txtActiveProfile.text = "🎮 $profileName"
+                notifyOverlayReloadIfRunning()
+            }
             .show()
     }
 
@@ -644,9 +712,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         edtGlossary.setText(s.customGlossary)
+        edtOcrBlacklist.setText(s.ocrBlacklist)
         switchAntiDuplicate.isChecked = s.antiDuplicate
         switchContextMemory.isChecked = s.useContextMemory
         switchChoiceFormatter.isChecked = s.choiceFormatter
+        switchVerticalCjk.isChecked = s.verticalCjkMode
 
         when (s.subtitlePositionMode) {
             SubtitlePositionMode.ABOVE_CROP -> chipGroupSubPos.check(R.id.chipPosAbove)
@@ -666,6 +736,7 @@ class MainActivity : AppCompatActivity() {
         updateVoiceButtonLabel()
 
         switchManualTriggerOnly.isChecked = s.manualTriggerOnly
+        switchAutoSwitchProfile.isChecked = s.autoSwitchProfile
 
         sliderScanSpeed.value = s.scanIntervalMs.toFloat().coerceIn(300f, 1500f)
         sliderFontSize.value = s.subtitleFontSizeSp.coerceIn(12f, 28f)
@@ -900,6 +971,9 @@ class MainActivity : AppCompatActivity() {
             translationMode = mode,
             translationStyle = style,
             customGlossary = edtGlossary.text?.toString()?.trim() ?: "",
+            ocrBlacklist = edtOcrBlacklist.text?.toString()?.trim() ?: "",
+            verticalCjkMode = switchVerticalCjk.isChecked,
+            autoSwitchProfile = switchAutoSwitchProfile.isChecked,
             subtitlePositionMode = posMode,
             smartColorMatch = switchSmartColorMatch.isChecked,
             cinemaOutlineMode = switchCinemaOutline.isChecked,

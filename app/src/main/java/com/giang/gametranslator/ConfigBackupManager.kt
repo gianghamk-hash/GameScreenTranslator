@@ -34,6 +34,9 @@ object ConfigBackupManager {
             put("translationMode", s.translationMode.name)
             put("translationStyle", s.translationStyle.name)
             put("customGlossary", s.customGlossary)
+            put("ocrBlacklist", s.ocrBlacklist)
+            put("verticalCjkMode", s.verticalCjkMode)
+            put("autoSwitchProfile", s.autoSwitchProfile)
             put("subtitlePositionMode", s.subtitlePositionMode.name)
             put("cinemaOutlineMode", s.cinemaOutlineMode)
             put("choiceFormatter", s.choiceFormatter)
@@ -87,6 +90,9 @@ object ConfigBackupManager {
             translationMode = TranslationMode.fromName(o.optString("translationMode", base.translationMode.name)),
             translationStyle = TranslationStyle.fromName(o.optString("translationStyle", base.translationStyle.name)),
             customGlossary = o.optString("customGlossary", base.customGlossary),
+            ocrBlacklist = o.optString("ocrBlacklist", base.ocrBlacklist),
+            verticalCjkMode = o.optBoolean("verticalCjkMode", base.verticalCjkMode),
+            autoSwitchProfile = o.optBoolean("autoSwitchProfile", base.autoSwitchProfile),
             subtitlePositionMode = SubtitlePositionMode.fromName(
                 o.optString("subtitlePositionMode", base.subtitlePositionMode.name),
                 false

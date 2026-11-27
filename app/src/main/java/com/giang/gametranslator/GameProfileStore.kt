@@ -15,7 +15,8 @@ data class GameProfile(
     val cropLeftPct: Float,
     val cropTopPct: Float,
     val cropRightPct: Float,
-    val cropBottomPct: Float
+    val cropBottomPct: Float,
+    val linkedPackageName: String = ""
 )
 
 /**
@@ -47,7 +48,8 @@ object GameProfileStore {
                         cropLeftPct = o.optDouble("left", 0.08).toFloat().coerceIn(0f, 0.95f),
                         cropTopPct = o.optDouble("top", 0.72).toFloat().coerceIn(0f, 0.95f),
                         cropRightPct = o.optDouble("right", 0.92).toFloat().coerceIn(0.05f, 1f),
-                        cropBottomPct = o.optDouble("bottom", 0.95).toFloat().coerceIn(0.05f, 1f)
+                        cropBottomPct = o.optDouble("bottom", 0.95).toFloat().coerceIn(0.05f, 1f),
+                        linkedPackageName = o.optString("pkg", "").trim()
                     )
                 )
             }
@@ -56,11 +58,20 @@ object GameProfileStore {
         return result
     }
 
-    fun saveFromSettings(context: Context, profileName: String, s: TranslatorSettings) {
+    fun findByPackage(context: Context, packageName: String): GameProfile? {
+        if (packageName.isBlank()) return null
+        return listProfiles(context).firstOrNull {
+            it.linkedPackageName.isNotEmpty() && it.linkedPackageName.equals(packageName, ignoreCase = true)
+        }
+    }
+
+    fun saveFromSettings(context: Context, profileName: String, s: TranslatorSettings, linkedPackageName: String = "") {
         val cleanName = profileName.trim()
         if (cleanName.isEmpty()) return
 
         val current = listProfiles(context).toMutableList()
+        val existing = current.firstOrNull { it.name.equals(cleanName, ignoreCase = true) }
+        val finalPkg = linkedPackageName.trim().ifEmpty { existing?.linkedPackageName ?: "" }
         val newProfile = GameProfile(
             name = cleanName,
             sourceLanguage = s.sourceLanguage,
@@ -72,7 +83,8 @@ object GameProfileStore {
             cropLeftPct = s.cropLeftPct,
             cropTopPct = s.cropTopPct,
             cropRightPct = s.cropRightPct,
-            cropBottomPct = s.cropBottomPct
+            cropBottomPct = s.cropBottomPct,
+            linkedPackageName = finalPkg
         )
         val existingIdx = current.indexOfFirst { it.name.equals(cleanName, ignoreCase = true) }
         if (existingIdx >= 0) {
@@ -141,7 +153,8 @@ object GameProfileStore {
                     cropLeftPct = o.optDouble("left", 0.08).toFloat().coerceIn(0f, 0.95f),
                     cropTopPct = o.optDouble("top", 0.72).toFloat().coerceIn(0f, 0.95f),
                     cropRightPct = o.optDouble("right", 0.92).toFloat().coerceIn(0.05f, 1f),
-                    cropBottomPct = o.optDouble("bottom", 0.95).toFloat().coerceIn(0.05f, 1f)
+                    cropBottomPct = o.optDouble("bottom", 0.95).toFloat().coerceIn(0.05f, 1f),
+                    linkedPackageName = o.optString("pkg", "").trim()
                 )
             )
         }
@@ -168,6 +181,7 @@ object GameProfileStore {
                     put("top", p.cropTopPct.toDouble())
                     put("right", p.cropRightPct.toDouble())
                     put("bottom", p.cropBottomPct.toDouble())
+                    put("pkg", p.linkedPackageName)
                 }
             )
         }

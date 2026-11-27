@@ -119,6 +119,9 @@ data class TranslatorSettings(
     val translationMode: TranslationMode = TranslationMode.HYBRID,
     val translationStyle: TranslationStyle = TranslationStyle.RPG_FANTASY,
     val customGlossary: String = "",
+    val ocrBlacklist: String = "SKIP, AUTO, LOG, MENU, FPS, BACK, NEXT",
+    val verticalCjkMode: Boolean = false,
+    val autoSwitchProfile: Boolean = true,
     val subtitlePositionMode: SubtitlePositionMode = SubtitlePositionMode.ABOVE_CROP,
     val cinemaOutlineMode: Boolean = false,
     val choiceFormatter: Boolean = true,
@@ -168,6 +171,13 @@ data class TranslatorSettings(
 
     fun bgColorInt(): Int = Color.argb(bgAlphaInt(), 11, 15, 23)
 
+    fun blacklistTokens(): List<String> =
+        ocrBlacklist
+            .split(",", "\n", ";")
+            .map { it.trim().uppercase() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
     fun glossaryTerms(): List<String> =
         customGlossary
             .split(",", "\n", ";")
@@ -211,6 +221,9 @@ object SettingsStore {
             translationMode = TranslationMode.fromName(p.getString("TRANSLATION_MODE", null)),
             translationStyle = TranslationStyle.fromName(p.getString("TRANSLATION_STYLE", null)),
             customGlossary = p.getString("CUSTOM_GLOSSARY", "") ?: "",
+            ocrBlacklist = p.getString("OCR_BLACKLIST", "SKIP, AUTO, LOG, MENU, FPS, BACK, NEXT") ?: "",
+            verticalCjkMode = p.getBoolean("VERTICAL_CJK_MODE", false),
+            autoSwitchProfile = p.getBoolean("AUTO_SWITCH_PROFILE", true),
             subtitlePositionMode = SubtitlePositionMode.fromName(savedPosName, legacyCover),
             cinemaOutlineMode = p.getBoolean("CINEMA_OUTLINE_MODE", false),
             choiceFormatter = p.getBoolean("CHOICE_FORMATTER", true),
@@ -250,6 +263,9 @@ object SettingsStore {
             .putString("TRANSLATION_MODE", s.translationMode.name)
             .putString("TRANSLATION_STYLE", s.translationStyle.name)
             .putString("CUSTOM_GLOSSARY", s.customGlossary.trim())
+            .putString("OCR_BLACKLIST", s.ocrBlacklist.trim())
+            .putBoolean("VERTICAL_CJK_MODE", s.verticalCjkMode)
+            .putBoolean("AUTO_SWITCH_PROFILE", s.autoSwitchProfile)
             .putString("SUBTITLE_POSITION_MODE", s.subtitlePositionMode.name)
             .putBoolean("COVER_ENG_SUB", s.coverEngSub)
             .putBoolean("CINEMA_OUTLINE_MODE", s.cinemaOutlineMode)

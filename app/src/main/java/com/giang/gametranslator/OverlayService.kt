@@ -336,7 +336,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v3.0 đang chạy")
+            .setContentTitle("Game Screen Translator v3.1 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
@@ -807,6 +807,20 @@ class OverlayService : Service() {
             Toast.makeText(
                 this,
                 if (settings.lockBubblePosition) "Đã khóa vị trí nút 🎯 (vẫn chạm/giữ bình thường)" else "Đã mở khóa kéo nút 🎯",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        addMenuItem(
+            if (settings.verticalCjkMode) "🈷 Đang bật: Chữ dọc Nhật/Trung" else "🈷 Bật: Chữ dọc Nhật/Trung",
+            "#FF38BDF8"
+        ) {
+            settings = settings.copy(verticalCjkMode = !settings.verticalCjkMode)
+            SettingsStore.save(this, settings)
+            deduplicator.resetSession()
+            Toast.makeText(
+                this,
+                if (settings.verticalCjkMode) "Đã bật đọc chữ dọc (phải → trái)!" else "Đã về chế độ đọc chữ ngang",
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -1627,7 +1641,7 @@ class OverlayService : Service() {
 
         getActiveTextRecognizer().process(inputImage)
             .addOnSuccessListener { visionText ->
-                val rawText = extractFormattedOcrText(visionText, settings.choiceFormatter)
+                val rawText = extractFormattedOcrText(visionText, settings)
                 bitmapForOcr.recycle()
                 isOcrRunning.set(false)
                 handleRecognizedText(rawText, forceManual)
@@ -1656,6 +1670,11 @@ class OverlayService : Service() {
             return
         }
 
+        if (isBlacklistedOcrText(rawText, settings)) {
+            TranslationStatsStore.recordBlacklistSkip(this)
+            return
+        }
+
         emptyFrameCount = 0
         val cacheNamespace = "${settings.sourceLanguage.name}|${settings.translationMode.name}|${settings.translationStyle.name}|${settings.customGlossary.hashCode()}"
         val eval = deduplicator.evaluate(
@@ -1670,6 +1689,7 @@ class OverlayService : Service() {
 
             TextDeduplicator.Decision.USE_CACHE -> {
                 val cached = eval.cachedTranslation ?: return
+                TranslationStatsStore.recordCacheHit(this)
                 DialogueHistoryStore.add(this, rawText, cached, settings.translationMode == TranslationMode.OFFLINE)
                 showOverlayMessage(cached)
                 if (settings.ttsEnabled && ::subtitleSpeaker.isInitialized) {
@@ -1679,6 +1699,7 @@ class OverlayService : Service() {
 
             TextDeduplicator.Decision.TRANSLATE -> {
                 val seq = ++translationSequence
+                val startMs = System.currentTimeMillis()
                 if (!hasActiveSubtitle || forceManual) {
                     showOverlayMessage("Đang dịch...")
                 }
@@ -1688,6 +1709,12 @@ class OverlayService : Service() {
                     settings = settings,
                     onSuccess = { translated, usedOffline ->
                         if (seq != translationSequence || !isRunning || isSelectingRegion) return@translate
+                        val elapsedMs = System.currentTimeMillis() - startMs
+                        if (usedOffline) {
+                            TranslationStatsStore.recordOffline(this, elapsedMs)
+                        } else {
+                            TranslationStatsStore.recordAi(this, settings.aiProvider.label, elapsedMs)
+                        }
                         deduplicator.recordTranslated(eval.normalizedText, cacheNamespace, translated)
                         DialogueHistoryStore.add(this, rawText, translated, usedOffline)
                         val display = if (usedOffline && settings.translationMode == TranslationMode.HYBRID) {
@@ -1709,16 +1736,47 @@ class OverlayService : Service() {
         }
     }
 
+    private fun isBlacklistedOcrText(rawText: String, s: TranslatorSettings): Boolean {
+        val tokens = s.blacklistTokens()
+        if (tokens.isEmpty()) return false
+        val upper = rawText.trim().uppercase()
+        if (upper in tokens) return true
+        // Nếu chuỗi rất ngắn (<= 24 ký tự) và mọi từ đều nằm trong danh sách rác HUD / số
+        if (upper.length <= 24) {
+            val words = upper.split(Regex("[^A-Z0-9]+")).filter { it.isNotEmpty() }
+            if (words.isNotEmpty() && words.all { w -> w in tokens || w.all { it.isDigit() } }) {
+                return true
+            }
+        }
+        return false
+    }
+
     /**
-     * Phát hiện bảng chọn đáp án (2–5 dòng lựa chọn riêng biệt) để giữ cấu trúc 1., 2., 3.
-     * thay vì gộp thành 1 đoạn văn liền mạch.
+     * Hỗ trợ:
+     * 1) Sắp xếp chuẩn chữ dọc Nhật/Trung (cột từ phải sang trái, trên xuống dưới).
+     * 2) Phát hiện bảng chọn đáp án (2–5 dòng lựa chọn riêng biệt) để giữ cấu trúc 1., 2., 3.
      */
     private fun extractFormattedOcrText(
         visionText: com.google.mlkit.vision.text.Text,
-        choiceFormatterEnabled: Boolean
+        s: TranslatorSettings
     ): String {
+        if (s.verticalCjkMode &&
+            (s.sourceLanguage == SourceLanguage.JAPANESE || s.sourceLanguage == SourceLanguage.CHINESE)
+        ) {
+            val verticalLines = visionText.textBlocks
+                .flatMap { it.lines }
+                .filter { it.text.trim().isNotEmpty() && it.boundingBox != null }
+                .sortedWith(
+                    compareByDescending<com.google.mlkit.vision.text.Text.Line> { it.boundingBox!!.centerX() / 24 }
+                        .thenBy { it.boundingBox!!.top }
+                )
+            if (verticalLines.isNotEmpty()) {
+                return verticalLines.joinToString("") { it.text.replace("\n", "").trim() }.trim()
+            }
+        }
+
         val flattened = visionText.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
-        if (!choiceFormatterEnabled) return flattened
+        if (!s.choiceFormatter) return flattened
 
         val lines = visionText.textBlocks
             .flatMap { it.lines }
