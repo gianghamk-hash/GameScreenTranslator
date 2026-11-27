@@ -49,21 +49,25 @@ jobs:
           echo "version_code=${VER_CODE}" >> "$GITHUB_OUTPUT"
           echo "Building ${TAG} (versionName=${VER_NAME}, versionCode=${VER_CODE})"
 
-      - name: Decode Release Keystore (if configured in Secrets)
+      - name: Decode & Verify Release Keystore
         id: keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
-            # Lọc sạch \r, \n, khoảng trắng khi copy từ Windows/PowerShell
             printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > app/release.jks
-            if [ -s app/release.jks ]; then
-              echo "has_keystore=true" >> "$GITHUB_OUTPUT"
-              echo "sign_note=Signed Release (OTA cài đè giữ nguyên dữ liệu)" >> "$GITHUB_OUTPUT"
-            else
-              echo "ERROR: app/release.jks rỗng sau khi giải mã Base64!"
+            if [ ! -s app/release.jks ]; then
+              echo "::error::KEYSTORE_BASE64 giải mã ra file rỗng! Hãy kiểm tra lại Secret KEYSTORE_BASE64."
               exit 1
             fi
+            if ! keytool -list -keystore app/release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+              echo "::error::Sai KEYSTORE_PASSWORD hoặc KEY_ALIAS (hoặc KEYSTORE_BASE64 bị lỗi). Hãy kiểm tra lại 4 GitHub Secrets!"
+              exit 1
+            fi
+            echo "has_keystore=true" >> "$GITHUB_OUTPUT"
+            echo "sign_note=Signed Release (OTA cài đè giữ nguyên dữ liệu)" >> "$GITHUB_OUTPUT"
           else
             echo "has_keystore=false" >> "$GITHUB_OUTPUT"
             echo "sign_note=Debug APK (Chưa cấu hình KEYSTORE_BASE64 - sẽ không cài đè OTA được)" >> "$GITHUB_OUTPUT"
@@ -80,9 +84,15 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          set -o pipefail
           ./gradlew assembleRelease \
             -PversionName=${{ steps.ver.outputs.version_name }} \
-            -PversionCode=${{ steps.ver.outputs.version_code }}
+            -PversionCode=${{ steps.ver.outputs.version_code }} \
+            --stacktrace 2>&1 | tee gradle_release.log || {
+              ERR_LINE=$(grep -E "^e:|FAILURE:|Caused by:|Execution failed" gradle_release.log | tail -n 5 | tr '\n' ' ')
+              echo "::error::Gradle assembleRelease failed: ${ERR_LINE}"
+              exit 1
+            }
           cp app/build/outputs/apk/release/app-release.apk "GameScreenTranslator-${{ steps.ver.outputs.tag }}.apk"
 
       - name: Build Debug APK (Fallback when no Keystore Secret)
