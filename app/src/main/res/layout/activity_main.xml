@@ -62,7 +62,7 @@
                 android:background="@drawable/bg_icon_badge"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
-                android:text="v2.9"
+                android:text="v3.0"
                 android:textColor="@color/accent_cyan"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -918,6 +918,24 @@
                         android:valueTo="100" />
 
                     <TextView
+                        android:id="@+id/txtAutoHideLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Tự ẩn phụ đề khi đứng yên: Tắt"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderAutoHide"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:stepSize="1"
+                        android:value="0"
+                        android:valueFrom="0"
+                        android:valueTo="15" />
+
+                    <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
@@ -1374,7 +1392,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
-                            android:text="Lịch sử thoại • Nhật ký lỗi • Cập nhật GitHub"
+                            android:text="Sao lưu JSON • Lịch sử • Nhật ký • OTA"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -1403,12 +1421,42 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="12.5sp" />
 
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnExportBackup"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_marginEnd="6dp"
+                            android:layout_weight="1"
+                            android:text="💾 Xuất JSON"
+                            android:textSize="12.5sp"
+                            app:cornerRadius="10dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnImportBackup"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_weight="1"
+                            android:text="📂 Nhập JSON"
+                            android:textColor="@color/accent_cyan"
+                            android:textSize="12.5sp"
+                            app:cornerRadius="10dp"
+                            app:strokeColor="@color/accent_cyan" />
+                    </LinearLayout>
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnViewHistory"
                         style="@style/Widget.Material3.Button.TonalButton"
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="8dp"
                         android:text="XEM LỊCH SỬ HỘI THOẠI"
                         android:textSize="13sp"
                         app:cornerRadius="10dp" />

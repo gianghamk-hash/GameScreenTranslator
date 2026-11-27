@@ -124,6 +124,7 @@ data class TranslatorSettings(
     val choiceFormatter: Boolean = true,
     val lockBubblePosition: Boolean = false,
     val autoFitTextSize: Boolean = true,
+    val autoHideSeconds: Int = 0,
     val smartColorMatch: Boolean = true,
     val manualTriggerOnly: Boolean = false,
     val autoFadeBubble: Boolean = true,
@@ -215,6 +216,7 @@ object SettingsStore {
             choiceFormatter = p.getBoolean("CHOICE_FORMATTER", true),
             lockBubblePosition = p.getBoolean("LOCK_BUBBLE_POSITION", false),
             autoFitTextSize = p.getBoolean("AUTO_FIT_TEXT_SIZE", true),
+            autoHideSeconds = p.getInt("AUTO_HIDE_SECONDS", 0).coerceIn(0, 15),
             smartColorMatch = p.getBoolean("SMART_COLOR_MATCH", true),
             manualTriggerOnly = p.getBoolean("MANUAL_TRIGGER_ONLY", false),
             autoFadeBubble = p.getBoolean("AUTO_FADE_BUBBLE", true),
@@ -254,6 +256,7 @@ object SettingsStore {
             .putBoolean("CHOICE_FORMATTER", s.choiceFormatter)
             .putBoolean("LOCK_BUBBLE_POSITION", s.lockBubblePosition)
             .putBoolean("AUTO_FIT_TEXT_SIZE", s.autoFitTextSize)
+            .putInt("AUTO_HIDE_SECONDS", s.autoHideSeconds.coerceIn(0, 15))
             .putBoolean("SMART_COLOR_MATCH", s.smartColorMatch)
             .putBoolean("MANUAL_TRIGGER_ONLY", s.manualTriggerOnly)
             .putBoolean("AUTO_FADE_BUBBLE", s.autoFadeBubble)

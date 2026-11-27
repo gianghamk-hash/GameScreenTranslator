@@ -1,4 +1,4 @@
-﻿name: Build & Release OTA APK
+name: Build & Release OTA APK
 
 on:
   push:
@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tên phiên bản Release (vd: v2.9)'
+        description: 'Tên phiên bản Release (vd: v3.0)'
         required: true
-        default: 'v2.9'
+        default: 'v3.0'
 
 permissions:
   contents: write
@@ -42,7 +42,6 @@ jobs:
             TAG="${GITHUB_REF_NAME}"
           fi
           VER_NAME="${TAG#v}"
-          # Luôn tăng nghiêm ngặt sau mỗi lần build (không bao giờ bị lỗi versionCode thấp hơn bản cũ)
           VER_CODE=$((100 + GITHUB_RUN_NUMBER))
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version_name=${VER_NAME}" >> "$GITHUB_OUTPUT"
@@ -58,12 +57,18 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > app/release.jks
-            if [ ! -s app/release.jks ]; then
-              echo "::error::KEYSTORE_BASE64 giải mã ra file rỗng! Hãy kiểm tra lại Secret KEYSTORE_BASE64."
+            FILE_SIZE=$(wc -c < app/release.jks)
+            echo "Decoded app/release.jks size: ${FILE_SIZE} bytes"
+            if [ "$FILE_SIZE" -lt 500 ]; then
+              echo "::error::KEYSTORE_BASE64 không hợp lệ (file giải mã chỉ có ${FILE_SIZE} bytes, file .jks chuẩn phải > 2000 bytes). Hãy copy lại Base64 từ C:\AndroidProjects\release.jks!"
               exit 1
             fi
-            FILE_SIZE=$(wc -c < app/release.jks); if ! KT_OUT=$(keytool -list -keystore app/release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" 2>&1); then echo "::error::Keytool (size=${FILE_SIZE}B): $(echo "$KT_OUT" | tr "\n" " ")"
-              echo "::error::Sai KEYSTORE_PASSWORD hoặc KEY_ALIAS (hoặc KEYSTORE_BASE64 bị lỗi). Hãy kiểm tra lại 4 GitHub Secrets!"
+            CLEAN_PASS=$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n' | xargs)
+            CLEAN_ALIAS=$(printf '%s' "$KEY_ALIAS" | tr -d '\r\n' | xargs)
+            if ! KT_OUT=$(keytool -list -keystore app/release.jks -storepass "$CLEAN_PASS" -alias "$CLEAN_ALIAS" 2>&1); then
+              echo "$KT_OUT"
+              ONE_LINE=$(printf '%s' "$KT_OUT" | tr '\n' ' ')
+              echo "::error::Keytool verify failed (size=${FILE_SIZE}B): ${ONE_LINE}"
               exit 1
             fi
             echo "has_keystore=true" >> "$GITHUB_OUTPUT"
@@ -113,4 +118,3 @@ jobs:
             - **Version Code**: `${{ steps.ver.outputs.version_code }}`
           generate_release_notes: true
           files: GameScreenTranslator-${{ steps.ver.outputs.tag }}.apk
-

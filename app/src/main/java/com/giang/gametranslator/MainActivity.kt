@@ -98,6 +98,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sliderFontSize: Slider
     private lateinit var txtBgAlphaLabel: TextView
     private lateinit var sliderBgAlpha: Slider
+    private lateinit var txtAutoHideLabel: TextView
+    private lateinit var sliderAutoHide: Slider
     private lateinit var chipGroupColor: ChipGroup
 
     // TTS Offline
@@ -139,13 +141,51 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val exportBackupLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            val current = collectSettingsFromUi()
+            SettingsStore.save(this, current)
+            val json = ConfigBackupManager.exportToJson(this, current)
+            contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(json.toByteArray(Charsets.UTF_8))
+            }
+            Toast.makeText(this, "Đã xuất toàn bộ cài đặt, API Key & Profile ra file JSON!", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Lỗi xuất file sao lưu: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private val importBackupLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            val raw = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                ?: throw IllegalStateException("Không đọc được nội dung file")
+            val result = ConfigBackupManager.importFromJson(this, raw)
+            loadSettingsIntoUi()
+            refreshOfflineModelStatus()
+            notifyOverlayReloadIfRunning()
+            Toast.makeText(
+                this,
+                "Đã khôi phục cấu hình & ${result.profileCount} Profile game thành công!",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Lỗi nhập file sao lưu: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "2.9"
+            val vName = info.versionName ?: "3.0"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v2.9"
+            "v3.0"
         }
     }
 
@@ -255,6 +295,8 @@ class MainActivity : AppCompatActivity() {
         sliderFontSize = findViewById(R.id.sliderFontSize)
         txtBgAlphaLabel = findViewById(R.id.txtBgAlphaLabel)
         sliderBgAlpha = findViewById(R.id.sliderBgAlpha)
+        txtAutoHideLabel = findViewById(R.id.txtAutoHideLabel)
+        sliderAutoHide = findViewById(R.id.sliderAutoHide)
         chipGroupColor = findViewById(R.id.chipGroupColor)
 
         switchTtsEnabled = findViewById(R.id.switchTtsEnabled)
@@ -308,6 +350,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnBatteryOpt.setOnClickListener { requestIgnoreBatteryOptimizations() }
+
+        findViewById<MaterialButton>(R.id.btnExportBackup).setOnClickListener {
+            exportBackupLauncher.launch(ConfigBackupManager.defaultBackupFilename())
+        }
+
+        findViewById<MaterialButton>(R.id.btnImportBackup).setOnClickListener {
+            importBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+        }
 
         findViewById<MaterialButton>(R.id.btnViewHistory).setOnClickListener {
             showDialogueHistoryDialog()
@@ -375,7 +425,8 @@ class MainActivity : AppCompatActivity() {
         val dupTag = if (s.antiDuplicate) "Chống lặp BẬT" else "Chống lặp TẮT"
         summaryStyle.text = "${s.translationStyle.label} • $dupTag"
         val cinemaTag = if (s.cinemaOutlineMode) " • Viền rạp phim" else ""
-        summaryUi.text = "${s.subtitlePositionMode.label} • ${s.subtitleFontSizeSp.toInt()} sp$cinemaTag"
+        val hideTag = if (s.autoHideSeconds > 0) " • Ẩn ${s.autoHideSeconds}s" else ""
+        summaryUi.text = "${s.subtitlePositionMode.label} • ${s.subtitleFontSizeSp.toInt()} sp$cinemaTag$hideTag"
 
         val rateStr = String.format(Locale.US, "%.2fx", s.ttsSpeechRate)
         txtTtsRateLabel.text = "Tốc độ đọc: $rateStr"
@@ -619,6 +670,7 @@ class MainActivity : AppCompatActivity() {
         sliderScanSpeed.value = s.scanIntervalMs.toFloat().coerceIn(300f, 1500f)
         sliderFontSize.value = s.subtitleFontSizeSp.coerceIn(12f, 28f)
         sliderBgAlpha.value = s.subtitleBgAlphaPct.toFloat().coerceIn(40f, 100f)
+        sliderAutoHide.value = s.autoHideSeconds.toFloat().coerceIn(0f, 15f)
 
         when (s.subtitleColor) {
             SubtitleColor.WHITE -> chipGroupColor.check(R.id.chipColorWhite)
@@ -655,6 +707,10 @@ class MainActivity : AppCompatActivity() {
             updateFolderSummaries()
         }
         sliderBgAlpha.addOnChangeListener { _, _, _ -> updateSliderLabelsAndPreview() }
+        sliderAutoHide.addOnChangeListener { _, _, _ ->
+            updateSliderLabelsAndPreview()
+            updateFolderSummaries()
+        }
         sliderTtsRate.addOnChangeListener { _, _, _ -> updateFolderSummaries() }
         chipGroupColor.setOnCheckedStateChangeListener { _, _ -> updateSliderLabelsAndPreview() }
 
@@ -850,6 +906,7 @@ class MainActivity : AppCompatActivity() {
             choiceFormatter = switchChoiceFormatter.isChecked,
             lockBubblePosition = switchLockBubble.isChecked,
             autoFitTextSize = switchAutoFitText.isChecked,
+            autoHideSeconds = sliderAutoHide.value.toInt(),
             autoFadeBubble = switchAutoFadeBubble.isChecked,
             ttsEnabled = switchTtsEnabled.isChecked,
             ttsVoiceName = selectedTtsVoiceName,
@@ -880,6 +937,8 @@ class MainActivity : AppCompatActivity() {
         txtScanSpeedLabel.text = "Tốc độ quét: $scanMs ms"
         txtFontSizeLabel.text = "Cỡ chữ phụ đề: ${fontSize.toInt()} sp"
         txtBgAlphaLabel.text = "Độ đậm nền che phụ đề: $bgAlphaPct%"
+        val hideSec = sliderAutoHide.value.toInt()
+        txtAutoHideLabel.text = if (hideSec <= 0) "Tự ẩn phụ đề khi đứng yên: Tắt" else "Tự ẩn phụ đề sau $hideSec giây không có thoại mới"
 
         val selectedColor = when (chipGroupColor.checkedChipId) {
             R.id.chipColorYellow -> SubtitleColor.YELLOW.colorInt

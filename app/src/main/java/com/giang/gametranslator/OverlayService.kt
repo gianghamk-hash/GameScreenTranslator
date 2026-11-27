@@ -174,6 +174,14 @@ class OverlayService : Service() {
         }
     }
 
+    private val autoHideRunnable = Runnable {
+        if (::overlayTextView.isInitialized && overlayTextView.visibility == View.VISIBLE) {
+            overlayTextView.visibility = View.GONE
+            hasActiveSubtitle = false
+            lastDisplayedText = ""
+        }
+    }
+
     private val fadeBubbleRunnable = Runnable {
         if (::floatingButton.isInitialized && settings.autoFadeBubble && quickMenuView == null) {
             floatingButton.animate()
@@ -227,6 +235,7 @@ class OverlayService : Service() {
         when (intent?.action) {
             SettingsStore.ACTION_RELOAD_SETTINGS -> {
                 reloadSettingsFromStore()
+                mainHandler.removeCallbacks(autoHideRunnable)
                 resetSampledColor()
                 applyOverlayStyleAndPosition()
                 updateBubbleAppearance()
@@ -327,7 +336,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v2.9 đang chạy")
+            .setContentTitle("Game Screen Translator v3.0 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
@@ -1759,6 +1768,14 @@ class OverlayService : Service() {
         return (base * scale).coerceAtLeast(11f)
     }
 
+    private fun scheduleAutoHideIfNeeded(text: String) {
+        mainHandler.removeCallbacks(autoHideRunnable)
+        val sec = settings.autoHideSeconds
+        if (sec > 0 && text != "Đang dịch...") {
+            mainHandler.postDelayed(autoHideRunnable, sec * 1000L)
+        }
+    }
+
     private fun showOverlayMessage(text: String) {
         mainHandler.post {
             if (!isSelectingRegion && ::overlayTextView.isInitialized) {
@@ -1771,6 +1788,7 @@ class OverlayService : Service() {
                 overlayTextView.text = text
                 overlayTextView.visibility = View.VISIBLE
                 hasActiveSubtitle = true
+                scheduleAutoHideIfNeeded(text)
             }
         }
     }

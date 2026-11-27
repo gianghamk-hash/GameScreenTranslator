@@ -111,6 +111,46 @@ object GameProfileStore {
         }
     }
 
+    fun exportJsonArray(context: Context): JSONArray {
+        val raw = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_PROFILES, null) ?: return JSONArray()
+        return try {
+            JSONArray(raw)
+        } catch (_: Exception) {
+            JSONArray()
+        }
+    }
+
+    fun importJsonArray(context: Context, arr: JSONArray): Int {
+        val parsed = mutableListOf<GameProfile>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val name = o.optString("name", "").trim()
+            if (name.isEmpty()) continue
+            val posName = o.optString("posMode", "").ifEmpty { null }
+            val legacyCover = o.optBoolean("cover", false)
+            parsed.add(
+                GameProfile(
+                    name = name,
+                    sourceLanguage = SourceLanguage.fromName(o.optString("lang", null)),
+                    translationStyle = TranslationStyle.fromName(o.optString("style", null)),
+                    customGlossary = o.optString("glossary", ""),
+                    subtitlePositionMode = SubtitlePositionMode.fromName(posName, legacyCover),
+                    smartColorMatch = o.optBoolean("smartColor", true),
+                    manualTriggerOnly = o.optBoolean("manual", false),
+                    cropLeftPct = o.optDouble("left", 0.08).toFloat().coerceIn(0f, 0.95f),
+                    cropTopPct = o.optDouble("top", 0.72).toFloat().coerceIn(0f, 0.95f),
+                    cropRightPct = o.optDouble("right", 0.92).toFloat().coerceIn(0.05f, 1f),
+                    cropBottomPct = o.optDouble("bottom", 0.95).toFloat().coerceIn(0.05f, 1f)
+                )
+            )
+        }
+        if (parsed.isNotEmpty()) {
+            persist(context, parsed)
+        }
+        return parsed.size
+    }
+
     private fun persist(context: Context, list: List<GameProfile>) {
         val arr = JSONArray()
         for (p in list) {
