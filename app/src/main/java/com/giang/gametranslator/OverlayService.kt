@@ -1719,7 +1719,7 @@ class OverlayService : Service() {
         if (lines.size !in 2..5) return flattened
 
         val cleanedTexts = lines.map { it.text.replace(Regex("\\s+"), " ").trim() }
-        val markerRegex = Regex("^(\\d+[\\.):]|\\[\\d+]|\\(\\d+\\)|[A-Da-d][\\.):]|[>•▸►▪■◆◇★☆\-–—])\\s*(.+)$")
+        val markerRegex = Regex("""^(\d+[.):]|\[\d+]|\(\d+\)|[A-Da-d][.):]|[>•▸►▪■◆◇★☆–—-])\s*(.+)$""")
         val markerMatches = cleanedTexts.count { markerRegex.matches(it) }
 
         var distinctGapCount = 0
