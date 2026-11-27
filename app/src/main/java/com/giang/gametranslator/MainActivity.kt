@@ -185,10 +185,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "3.1"
+            val vName = info.versionName ?: "3.2"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v3.1"
+            "v3.2"
         }
     }
 
@@ -431,19 +431,42 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateFolderSummaries() {
         val s = collectSettingsFromUi()
-        summaryEngine.text = "${s.sourceLanguage.shortLabel} → Việt • ${s.aiProvider.label} • ${s.translationMode.label}"
-        val dupTag = if (s.antiDuplicate) "Chống lặp BẬT" else "Chống lặp TẮT"
-        summaryStyle.text = "${s.translationStyle.label} • $dupTag"
-        val cinemaTag = if (s.cinemaOutlineMode) " • Viền rạp phim" else ""
+        val shortMode = when (s.translationMode) {
+            TranslationMode.HYBRID -> "Tự động"
+            TranslationMode.ONLINE -> "Chỉ AI"
+            TranslationMode.OFFLINE -> "Offline"
+        }
+        val shortProvider = when (s.aiProvider) {
+            AiProvider.GEMINI -> "Gemini"
+            AiProvider.GROQ -> "Groq"
+            AiProvider.OPENROUTER -> "OpenRouter"
+            AiProvider.DEEPSEEK -> "DeepSeek"
+        }
+        summaryEngine.text = "${s.sourceLanguage.shortLabel} • $shortProvider • $shortMode"
+
+        val shortStyle = when (s.translationStyle) {
+            TranslationStyle.RPG_FANTASY -> "RPG"
+            TranslationStyle.ACTION_MODERN -> "Hành động"
+            TranslationStyle.VISUAL_NOVEL -> "VN"
+            TranslationStyle.LITERAL_UI -> "Menu"
+        }
+        summaryStyle.text = if (s.antiDuplicate) "$shortStyle • Chống lặp" else shortStyle
+
+        val shortPos = when (s.subtitlePositionMode) {
+            SubtitlePositionMode.ABOVE_CROP -> "Trên Sub"
+            SubtitlePositionMode.COVER_CROP -> "Đè Sub"
+            SubtitlePositionMode.BOTTOM_FLOATING -> "Dưới màn"
+        }
+        val cinemaTag = if (s.cinemaOutlineMode) " • Viền đen" else ""
         val hideTag = if (s.autoHideSeconds > 0) " • Ẩn ${s.autoHideSeconds}s" else ""
-        summaryUi.text = "${s.subtitlePositionMode.label} • ${s.subtitleFontSizeSp.toInt()} sp$cinemaTag$hideTag"
+        summaryUi.text = "$shortPos • ${s.subtitleFontSizeSp.toInt()}sp$cinemaTag$hideTag"
 
         val rateStr = String.format(Locale.US, "%.2fx", s.ttsSpeechRate)
-        txtTtsRateLabel.text = "Tốc độ đọc: $rateStr"
-        summaryTts.text = if (s.ttsEnabled) "Đang bật • Tốc độ $rateStr" else "Đang tắt • Miễn phí 0ms"
+        txtTtsRateLabel.text = "Tốc độ: $rateStr"
+        summaryTts.text = if (s.ttsEnabled) "Bật • $rateStr" else "Tắt"
 
         val manualTag = if (s.manualTriggerOnly) " • 0% nháy" else ""
-        summaryGamepad.text = "Thoại: ${s.hotkeyTranslate.label} • Toàn màn: ${s.hotkeyFullScreen.label}$manualTag"
+        summaryGamepad.text = "${s.hotkeyTranslate.label} / ${s.hotkeyFullScreen.label}$manualTag"
     }
 
     @SuppressLint("BatteryLife")
@@ -471,13 +494,15 @@ class MainActivity : AppCompatActivity() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val ignoring = pm.isIgnoringBatteryOptimizations(packageName)
         if (ignoring) {
-            btnBatteryOpt.text = "✓ ĐANG BẬT CHỐNG TẮT NỀN (KHÔNG GIỚI HẠN PIN)"
+            btnBatteryOpt.text = "Chống tắt: Bật"
             btnBatteryOpt.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
             btnBatteryOpt.strokeColor = ContextCompat.getColorStateList(this, R.color.accent_green)
+            btnBatteryOpt.iconTint = ContextCompat.getColorStateList(this, R.color.accent_green)
         } else {
-            btnBatteryOpt.text = "BẬT CHỐNG TẮT NỀN (MIỄN TỐI ƯU PIN)"
+            btnBatteryOpt.text = "Chống tắt: Tắt"
             btnBatteryOpt.setTextColor(ContextCompat.getColor(this, R.color.accent_amber))
             btnBatteryOpt.strokeColor = ContextCompat.getColorStateList(this, R.color.accent_amber)
+            btnBatteryOpt.iconTint = ContextCompat.getColorStateList(this, R.color.accent_amber)
         }
     }
 
@@ -528,9 +553,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshGamepadServiceButton() {
         if (isGamepadAccessibilityEnabled()) {
-            btnEnableGamepadService.text = "✓ DỊCH VỤ PHÍM TAY CẦM ĐANG BẬT"
+            btnEnableGamepadService.text = "Trợ năng: Bật"
         } else {
-            btnEnableGamepadService.text = "BẬT DỊCH VỤ PHÍM TAY CẦM (TRỢ NĂNG)"
+            btnEnableGamepadService.text = "Trợ năng: Tắt"
         }
     }
 
@@ -553,7 +578,7 @@ class MainActivity : AppCompatActivity() {
                     return@setPositiveButton
                 }
                 GameProfileStore.saveFromSettings(this, name, currentSettings)
-                txtActiveProfile.text = "🎮 $name"
+                txtActiveProfile.text = name
                 notifyOverlayReloadIfRunning()
                 Toast.makeText(this, "Đã lưu Profile '$name'!", Toast.LENGTH_SHORT).show()
             }
@@ -583,7 +608,7 @@ class MainActivity : AppCompatActivity() {
 
         if (apps.isEmpty()) {
             GameProfileStore.saveFromSettings(this, profileName, currentSettings)
-            txtActiveProfile.text = "🎮 $profileName"
+            txtActiveProfile.text = profileName
             Toast.makeText(this, "Đã lưu Profile '$profileName' (không tìm thấy app để liên kết)", Toast.LENGTH_SHORT).show()
             return
         }
@@ -594,13 +619,13 @@ class MainActivity : AppCompatActivity() {
             .setItems(labels) { _, which ->
                 val (appLabel, pkg) = apps[which]
                 GameProfileStore.saveFromSettings(this, profileName, currentSettings, linkedPackageName = pkg)
-                txtActiveProfile.text = "🎮 $profileName"
+                txtActiveProfile.text = profileName
                 notifyOverlayReloadIfRunning()
                 Toast.makeText(this, "Đã lưu '$profileName' & liên kết với $appLabel!", Toast.LENGTH_LONG).show()
             }
             .setNegativeButton("Bỏ qua") { _, _ ->
                 GameProfileStore.saveFromSettings(this, profileName, currentSettings)
-                txtActiveProfile.text = "🎮 $profileName"
+                txtActiveProfile.text = profileName
                 notifyOverlayReloadIfRunning()
             }
             .show()
@@ -678,7 +703,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSettingsIntoUi() {
         val s = SettingsStore.load(this)
-        txtActiveProfile.text = "🎮 ${s.activeProfileName}"
+        txtActiveProfile.text = s.activeProfileName
 
         when (s.sourceLanguage) {
             SourceLanguage.JAPANESE -> chipGroupSourceLang.check(R.id.chipLangJa)
@@ -889,7 +914,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshOfflineModelStatus() {
         val lang = selectedSourceLanguage()
-        txtOfflinePackTitle.text = "Gói dịch Offline (${lang.shortLabel} → Việt)"
+        txtOfflinePackTitle.text = "Gói Offline (${lang.shortLabel})"
         txtOfflineStatus.text = "Đang kiểm tra..."
         txtOfflineStatus.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
 
@@ -901,11 +926,11 @@ class MainActivity : AppCompatActivity() {
                 if (downloaded) {
                     txtOfflineStatus.text = "Đã sẵn sàng trên máy (không cần mạng)"
                     txtOfflineStatus.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
-                    btnDownloadOffline.text = "Xóa gói"
+                    btnDownloadOffline.text = "Xóa"
                 } else {
                     txtOfflineStatus.text = "Chưa tải ($approxSize, cần mạng lần đầu)"
                     txtOfflineStatus.setTextColor(ContextCompat.getColor(this, R.color.accent_amber))
-                    btnDownloadOffline.text = "Tải gói"
+                    btnDownloadOffline.text = "Tải"
                 }
             }
         }
@@ -1008,11 +1033,11 @@ class MainActivity : AppCompatActivity() {
         val fontSize = sliderFontSize.value
         val bgAlphaPct = sliderBgAlpha.value.toInt()
 
-        txtScanSpeedLabel.text = "Tốc độ quét: $scanMs ms"
-        txtFontSizeLabel.text = "Cỡ chữ phụ đề: ${fontSize.toInt()} sp"
-        txtBgAlphaLabel.text = "Độ đậm nền che phụ đề: $bgAlphaPct%"
+        txtScanSpeedLabel.text = "Quét: ${scanMs}ms"
+        txtFontSizeLabel.text = "Cỡ chữ: ${fontSize.toInt()}sp"
+        txtBgAlphaLabel.text = "Độ đậm nền: $bgAlphaPct%"
         val hideSec = sliderAutoHide.value.toInt()
-        txtAutoHideLabel.text = if (hideSec <= 0) "Tự ẩn phụ đề khi đứng yên: Tắt" else "Tự ẩn phụ đề sau $hideSec giây không có thoại mới"
+        txtAutoHideLabel.text = if (hideSec <= 0) "Tự ẩn: Tắt" else "Tự ẩn: ${hideSec}s"
 
         val selectedColor = when (chipGroupColor.checkedChipId) {
             R.id.chipColorYellow -> SubtitleColor.YELLOW.colorInt

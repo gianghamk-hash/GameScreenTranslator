@@ -2,8 +2,8 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
-val propVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 15
-val propVersionName = (project.findProperty("versionName") as String?) ?: "3.1"
+val propVersionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 16
+val propVersionName = (project.findProperty("versionName") as String?) ?: "3.2"
 val keystorePath = System.getenv("KEYSTORE_PATH")
 val keystorePasswordEnv = System.getenv("KEYSTORE_PASSWORD")
 val keyAliasEnv = System.getenv("KEY_ALIAS")

@@ -12,48 +12,33 @@
         android:layout_height="wrap_content"
         android:animateLayoutChanges="true"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="14dp">
 
-        <!-- HEADER -->
+        <!-- COMPACT HEADER -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingTop="6dp"
-            android:paddingBottom="12dp">
+            android:paddingTop="4dp"
+            android:paddingBottom="10dp">
 
             <ImageView
-                android:layout_width="42dp"
-                android:layout_height="42dp"
-                android:layout_marginEnd="12dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="10dp"
                 android:contentDescription="App Icon"
                 android:src="@mipmap/ic_launcher" />
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/txtAppTitle"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/txtAppTitle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Game Screen Translator"
-                    android:textColor="@color/text_primary"
-                    android:textSize="20sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/txtSubtitleHeader"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="Anh / Nhật / Trung / Hàn → Việt • AI &amp; Offline"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
-            </LinearLayout>
+                android:text="Game Translator"
+                android:textColor="@color/text_primary"
+                android:textSize="19sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/txtVersionBadge"
@@ -62,51 +47,60 @@
                 android:background="@drawable/bg_icon_badge"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
-                android:text="v3.1"
+                android:text="v3.2"
                 android:textColor="@color/accent_cyan"
-                android:textSize="12sp"
+                android:textSize="11.5sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- PRIMARY ACTION BUTTONS -->
+        <!-- PRIMARY ACTION BAR (ICON-FIRST) -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="10dp"
             android:orientation="horizontal">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnStart"
                 android:layout_width="0dp"
-                android:layout_height="52dp"
+                android:layout_height="48dp"
                 android:layout_marginEnd="8dp"
-                android:layout_weight="2"
-                android:text="▶  BẬT DỊCH GAME"
+                android:layout_weight="3"
+                android:text="BẬT DỊCH"
                 android:textColor="@color/white"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 app:backgroundTint="@color/accent_blue"
-                app:cornerRadius="12dp" />
+                app:cornerRadius="14dp"
+                app:icon="@drawable/ic_play"
+                app:iconGravity="textStart"
+                app:iconPadding="8dp"
+                app:iconSize="20dp"
+                app:iconTint="@color/white" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnStop"
                 style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
-                android:layout_weight="1"
-                android:text="■  TẮT"
-                android:textColor="@color/accent_red"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                app:cornerRadius="12dp"
+                android:layout_width="56dp"
+                android:layout_height="48dp"
+                android:contentDescription="Tắt dịch"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:padding="0dp"
+                app:cornerRadius="14dp"
+                app:icon="@drawable/ic_stop"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp"
+                app:iconSize="20dp"
+                app:iconTint="@color/accent_red"
                 app:strokeColor="@color/accent_red" />
         </LinearLayout>
 
-        <!-- PROFILE GAME BAR -->
+        <!-- COMPACT PROFILE BAR -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="14dp"
+            android:layout_marginBottom="10dp"
             app:cardBackgroundColor="@color/surface_card"
             app:cardCornerRadius="14dp"
             app:cardElevation="0dp"
@@ -118,61 +112,70 @@
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:padding="12dp">
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="8dp">
 
-                <LinearLayout
+                <ImageView
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_marginEnd="10dp"
+                    android:contentDescription="Profile"
+                    android:src="@drawable/ic_sec_gamepad" />
+
+                <TextView
+                    android:id="@+id/txtActiveProfile"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Profile Game hiện tại"
-                        android:textColor="@color/text_muted"
-                        android:textSize="11sp" />
-
-                    <TextView
-                        android:id="@+id/txtActiveProfile"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🎮 Mặc định"
-                        android:textColor="@color/text_primary"
-                        android:textSize="14.5sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="Mặc định"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnSwitchProfile"
                     style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="wrap_content"
+                    android:layout_width="40dp"
                     android:layout_height="38dp"
                     android:layout_marginEnd="6dp"
-                    android:text="Đổi"
-                    android:textSize="12sp"
-                    app:cornerRadius="10dp" />
+                    android:contentDescription="Đổi Profile"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:padding="0dp"
+                    app:cornerRadius="10dp"
+                    app:icon="@drawable/ic_swap"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconSize="18dp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnSaveProfile"
                     style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="wrap_content"
+                    android:layout_width="40dp"
                     android:layout_height="38dp"
-                    android:text="Lưu"
-                    android:textColor="@color/accent_cyan"
-                    android:textSize="12sp"
+                    android:contentDescription="Lưu Profile"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:padding="0dp"
                     app:cornerRadius="10dp"
+                    app:icon="@drawable/ic_save"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconSize="18dp"
+                    app:iconTint="@color/accent_cyan"
                     app:strokeColor="@color/accent_cyan" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ==================== THƯ MỤC 1: NGÔN NGỮ & ĐỘNG CƠ DỊCH ==================== -->
+        <!-- ==================== 1. DỊCH & AI ==================== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="10dp"
+            android:layout_marginBottom="8dp"
             app:cardBackgroundColor="@color/surface_card"
-            app:cardCornerRadius="16dp"
+            app:cardCornerRadius="14dp"
             app:cardElevation="0dp"
             app:strokeColor="@color/stroke_subtle"
             app:strokeWidth="1dp">
@@ -191,15 +194,15 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="14dp">
+                    android:padding="12dp">
 
                     <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
                         android:layout_marginEnd="12dp"
                         android:background="@drawable/bg_icon_badge"
-                        android:contentDescription="Ngôn ngữ và Động cơ dịch"
-                        android:padding="8dp"
+                        android:contentDescription="Dịch và AI"
+                        android:padding="7dp"
                         android:src="@drawable/ic_sec_engine" />
 
                     <LinearLayout
@@ -211,25 +214,26 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Ngôn ngữ &amp; Động cơ dịch"
+                            android:text="Dịch &amp; AI"
                             android:textColor="@color/text_primary"
-                            android:textSize="15sp"
+                            android:textSize="14.5sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:id="@+id/summaryEngine"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="Anh → Việt • Tự động (AI + Offline)"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="Anh • Gemini • Tự động"
                             android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
+                            android:textSize="11.5sp" />
                     </LinearLayout>
 
                     <ImageView
                         android:id="@+id/arrowEngine"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
                         android:contentDescription="Mở rộng"
                         android:src="@drawable/ic_chevron_down" />
                 </LinearLayout>
@@ -239,22 +243,14 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:paddingHorizontal="16dp"
-                    android:paddingBottom="16dp"
+                    android:paddingHorizontal="14dp"
+                    android:paddingBottom="14dp"
                     android:visibility="gone">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Ngôn ngữ gốc trong game (OCR + Dịch):"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12.5sp" />
 
                     <com.google.android.material.chip.ChipGroup
                         android:id="@+id/chipGroupSourceLang"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
                         app:selectionRequired="true"
                         app:singleSelection="true">
 
@@ -264,7 +260,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:checked="true"
-                            android:text="Anh (EN)"
+                            android:text="Anh"
                             android:textColor="@color/text_primary" />
 
                         <com.google.android.material.chip.Chip
@@ -272,7 +268,7 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Nhật (JA)"
+                            android:text="Nhật"
                             android:textColor="@color/text_primary" />
 
                         <com.google.android.material.chip.Chip
@@ -280,7 +276,7 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Trung (ZH)"
+                            android:text="Trung"
                             android:textColor="@color/text_primary" />
 
                         <com.google.android.material.chip.Chip
@@ -288,17 +284,9 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Hàn (KO)"
+                            android:text="Hàn"
                             android:textColor="@color/text_primary" />
                     </com.google.android.material.chip.ChipGroup>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Chế độ dịch:"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12.5sp" />
 
                     <com.google.android.material.chip.ChipGroup
                         android:id="@+id/chipGroupMode"
@@ -314,7 +302,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:checked="true"
-                            android:text="Tự động (AI + Offline)"
+                            android:text="Tự động"
                             android:textColor="@color/text_primary" />
 
                         <com.google.android.material.chip.Chip
@@ -322,7 +310,7 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Gemini AI"
+                            android:text="Chỉ AI"
                             android:textColor="@color/text_primary" />
 
                         <com.google.android.material.chip.Chip
@@ -330,17 +318,9 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Chỉ Offline"
+                            android:text="Offline"
                             android:textColor="@color/text_primary" />
                     </com.google.android.material.chip.ChipGroup>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Nhà cung cấp AI chính (tự dự phòng chéo khi 429):"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12.5sp" />
 
                     <com.google.android.material.chip.ChipGroup
                         android:id="@+id/chipGroupAiProvider"
@@ -364,7 +344,7 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Groq (0.2s)"
+                            android:text="Groq"
                             android:textColor="@color/accent_green" />
 
                         <com.google.android.material.chip.Chip
@@ -388,8 +368,8 @@
                         style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:hint="Gemini API Key (dán 1 hoặc nhiều key, mỗi dòng 1 key để chống 429)"
+                        android:layout_marginTop="8dp"
+                        android:hint="Gemini API Key (mỗi dòng 1 key)"
                         app:boxStrokeColor="@color/accent_blue"
                         app:endIconMode="clear_text">
 
@@ -408,8 +388,8 @@
                         style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:hint="Tên Model Gemini (vd: gemini-3.5-flash-lite)"
+                        android:layout_marginTop="8dp"
+                        android:hint="Model Gemini (gemini-3.5-flash-lite)"
                         app:boxStrokeColor="@color/accent_blue">
 
                         <com.google.android.material.textfield.TextInputEditText
@@ -424,8 +404,8 @@
                         style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:hint="API Key Groq / OpenRouter / DeepSeek (dùng chính hoặc dự phòng khi Gemini 429)"
+                        android:layout_marginTop="8dp"
+                        android:hint="API Key Groq / OpenRouter / DeepSeek"
                         app:boxStrokeColor="@color/accent_green"
                         app:endIconMode="clear_text">
 
@@ -444,8 +424,8 @@
                         style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:hint="Model AI phụ (để trống = tự chọn nhanh nhất: llama-3.3-70b-versatile)"
+                        android:layout_marginTop="8dp"
+                        android:hint="Model AI phụ (trống = tự chọn)"
                         app:boxStrokeColor="@color/accent_green">
 
                         <com.google.android.material.textfield.TextInputEditText
@@ -456,14 +436,14 @@
                             android:textColor="@color/text_primary" />
                     </com.google.android.material.textfield.TextInputLayout>
 
-                    <!-- Offline Pack Manager + Progress Bar (%) -->
+                    <!-- Offline Pack -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="10dp"
                         android:background="@color/surface_elevated"
                         android:orientation="vertical"
-                        android:padding="12dp">
+                        android:padding="10dp">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -481,36 +461,37 @@
                                     android:id="@+id/txtOfflinePackTitle"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="Gói dịch Offline (Anh → Việt)"
+                                    android:text="Gói Offline (Anh)"
                                     android:textColor="@color/text_primary"
-                                    android:textSize="13sp"
+                                    android:textSize="12.5sp"
                                     android:textStyle="bold" />
 
                                 <TextView
                                     android:id="@+id/txtOfflineStatus"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:layout_marginTop="2dp"
                                     android:text="Đang kiểm tra..."
                                     android:textColor="@color/text_secondary"
-                                    android:textSize="12sp" />
+                                    android:textSize="11.5sp" />
                             </LinearLayout>
 
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/btnDownloadOffline"
                                 style="@style/Widget.Material3.Button.TonalButton"
                                 android:layout_width="wrap_content"
-                                android:layout_height="40dp"
-                                android:text="Tải gói"
+                                android:layout_height="36dp"
+                                android:text="Tải"
                                 android:textSize="12sp"
-                                app:cornerRadius="10dp" />
+                                app:cornerRadius="10dp"
+                                app:icon="@drawable/ic_download"
+                                app:iconSize="16dp" />
                         </LinearLayout>
 
                         <com.google.android.material.progressindicator.LinearProgressIndicator
                             android:id="@+id/progressOfflineDownload"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
+                            android:layout_marginTop="6dp"
                             android:max="100"
                             android:visibility="gone"
                             app:indicatorColor="@color/accent_cyan"
@@ -521,13 +502,13 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ==================== THƯ MỤC 2: VĂN PHONG, TÊN RIÊNG & CHỐNG LẶP ==================== -->
+        <!-- ==================== 2. VĂN PHONG & LỌC ==================== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="10dp"
+            android:layout_marginBottom="8dp"
             app:cardBackgroundColor="@color/surface_card"
-            app:cardCornerRadius="16dp"
+            app:cardCornerRadius="14dp"
             app:cardElevation="0dp"
             app:strokeColor="@color/stroke_subtle"
             app:strokeWidth="1dp">
@@ -546,15 +527,15 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="14dp">
+                    android:padding="12dp">
 
                     <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
                         android:layout_marginEnd="12dp"
                         android:background="@drawable/bg_icon_badge"
-                        android:contentDescription="Văn phong và Từ điển"
-                        android:padding="8dp"
+                        android:contentDescription="Văn phong"
+                        android:padding="7dp"
                         android:src="@drawable/ic_sec_style" />
 
                     <LinearLayout
@@ -566,25 +547,26 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Văn phong, Tên riêng &amp; Chống lặp"
+                            android:text="Văn phong &amp; Lọc"
                             android:textColor="@color/text_primary"
-                            android:textSize="15sp"
+                            android:textSize="14.5sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:id="@+id/summaryStyle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="RPG / Giả tưởng • Chống lặp BẬT"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="RPG • Chống lặp"
                             android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
+                            android:textSize="11.5sp" />
                     </LinearLayout>
 
                     <ImageView
                         android:id="@+id/arrowStyle"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
                         android:contentDescription="Mở rộng"
                         android:src="@drawable/ic_chevron_down" />
                 </LinearLayout>
@@ -594,8 +576,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:paddingHorizontal="16dp"
-                    android:paddingBottom="16dp"
+                    android:paddingHorizontal="14dp"
+                    android:paddingBottom="14dp"
                     android:visibility="gone">
 
                     <com.google.android.material.chip.ChipGroup
@@ -611,7 +593,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:checked="true"
-                            android:text="RPG / Giả tưởng"
+                            android:text="RPG"
                             android:textColor="@color/text_primary" />
 
                         <com.google.android.material.chip.Chip
@@ -619,7 +601,7 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Hành động / Hiện đại"
+                            android:text="Hành động"
                             android:textColor="@color/text_primary" />
 
                         <com.google.android.material.chip.Chip
@@ -635,7 +617,7 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Sát nghĩa / Menu"
+                            android:text="Menu"
                             android:textColor="@color/text_primary" />
                     </com.google.android.material.chip.ChipGroup>
 
@@ -643,8 +625,8 @@
                         style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:hint="Tên giữ nguyên hoặc từ điển (vd: Cloud, Midgar, Guild=Công hội)"
+                        android:layout_marginTop="8dp"
+                        android:hint="Tên riêng / Từ điển (Cloud, Guild=Công hội)"
                         app:boxStrokeColor="@color/accent_blue">
 
                         <com.google.android.material.textfield.TextInputEditText
@@ -653,57 +635,17 @@
                             android:layout_height="wrap_content"
                             android:gravity="top"
                             android:inputType="textMultiLine"
-                            android:maxLines="3"
-                            android:minLines="2"
+                            android:maxLines="2"
+                            android:minLines="1"
                             android:textColor="@color/text_primary" />
                     </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchAntiDuplicate"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:checked="true"
-                        android:text="Chống dịch lặp (Fuzzy + Cache + Chờ chạy chữ)"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchContextMemory"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:checked="true"
-                        android:text="Nhớ ngữ cảnh 4 câu thoại gần nhất (giữ xưng hô)"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchChoiceFormatter"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:checked="true"
-                        android:text="Tự tách dòng 1. 2. 3. cho bảng chọn đáp án RPG / VN"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchVerticalCjk"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:checked="false"
-                        android:text="Chế độ chữ dọc Nhật / Trung (đọc cột phải → trái)"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:hint="Chữ rác HUD bỏ qua (vd: SKIP, AUTO, LOG, MENU, FPS)"
+                        android:hint="Từ rác HUD bỏ qua (SKIP, AUTO, FPS...)"
                         app:boxStrokeColor="@color/accent_blue">
 
                         <com.google.android.material.textfield.TextInputEditText
@@ -714,17 +656,54 @@
                             android:singleLine="true"
                             android:textColor="@color/text_primary" />
                     </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAntiDuplicate"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:checked="true"
+                        android:text="Chống dịch lặp &amp; Cache"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchContextMemory"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Nhớ ngữ cảnh 4 câu"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchChoiceFormatter"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Tách dòng đáp án (1. 2. 3.)"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchVerticalCjk"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="false"
+                        android:text="Chữ dọc Nhật / Trung"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ==================== THƯ MỤC 3: VỊ TRÍ PHỤ ĐỀ & GIAO DIỆN ==================== -->
+        <!-- ==================== 3. GIAO DIỆN SUB ==================== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="10dp"
+            android:layout_marginBottom="8dp"
             app:cardBackgroundColor="@color/surface_card"
-            app:cardCornerRadius="16dp"
+            app:cardCornerRadius="14dp"
             app:cardElevation="0dp"
             app:strokeColor="@color/stroke_subtle"
             app:strokeWidth="1dp">
@@ -743,15 +722,15 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="14dp">
+                    android:padding="12dp">
 
                     <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
                         android:layout_marginEnd="12dp"
                         android:background="@drawable/bg_icon_badge"
                         android:contentDescription="Giao diện phụ đề"
-                        android:padding="8dp"
+                        android:padding="7dp"
                         android:src="@drawable/ic_sec_ui" />
 
                     <LinearLayout
@@ -763,25 +742,26 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Vị trí Phụ đề &amp; Giao diện"
+                            android:text="Giao diện Sub"
                             android:textColor="@color/text_primary"
-                            android:textSize="15sp"
+                            android:textSize="14.5sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:id="@+id/summaryUi"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="Sát trên Eng-Sub (0% nháy) • 16 sp"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="Trên Sub • 16sp"
                             android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
+                            android:textSize="11.5sp" />
                     </LinearLayout>
 
                     <ImageView
                         android:id="@+id/arrowUi"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
                         android:contentDescription="Mở rộng"
                         android:src="@drawable/ic_chevron_down" />
                 </LinearLayout>
@@ -791,8 +771,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:paddingHorizontal="16dp"
-                    android:paddingBottom="16dp"
+                    android:paddingHorizontal="14dp"
+                    android:paddingBottom="14dp"
                     android:visibility="gone">
 
                     <com.google.android.material.chip.ChipGroup
@@ -808,7 +788,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:checked="true"
-                            android:text="Sát trên Eng-Sub (0% nháy)"
+                            android:text="Trên Sub"
                             android:textColor="@color/accent_green" />
 
                         <com.google.android.material.chip.Chip
@@ -816,7 +796,7 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Đè kín Eng-Sub"
+                            android:text="Đè Sub"
                             android:textColor="@color/text_primary" />
 
                         <com.google.android.material.chip.Chip
@@ -824,151 +804,21 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Nổi dưới màn hình"
+                            android:text="Dưới màn"
                             android:textColor="@color/text_primary" />
                     </com.google.android.material.chip.ChipGroup>
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchSmartColorMatch"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:checked="true"
-                        android:text="Tự động tiệp màu nền hộp thoại game (Chống rung)"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchCinemaOutline"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:checked="false"
-                        android:text="Phụ đề trong suốt viền đen chuẩn rạp phim (bỏ khung nền)"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchAutoFitText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:checked="true"
-                        android:text="Tự co nhỏ cỡ chữ khi câu thoại dài (chống tràn khung)"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchAutoFadeBubble"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:checked="true"
-                        android:text="Tự làm mờ &amp; thu gọn nút 🎯 sau 4 giây không chạm"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchLockBubble"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:checked="false"
-                        android:text="Khóa vị trí nút 🎯 (chống kéo nhầm khi đang combat)"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp" />
 
                     <com.giang.gametranslator.StrokeTextView
                         android:id="@+id/txtSubtitlePreview"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
+                        android:layout_marginTop="8dp"
                         android:gravity="center"
-                        android:padding="12dp"
-                        android:text="Cloud: Chúng ta phải rời khỏi Midgar ngay đêm nay!"
+                        android:padding="10dp"
+                        android:text="Cloud: Rời khỏi Midgar ngay đêm nay!"
                         android:textColor="@color/white"
                         android:textSize="16sp"
                         android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/txtScanSpeedLabel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:text="Tốc độ quét: 500 ms"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.slider.Slider
-                        android:id="@+id/sliderScanSpeed"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:stepSize="50"
-                        android:value="500"
-                        android:valueFrom="300"
-                        android:valueTo="1500" />
-
-                    <TextView
-                        android:id="@+id/txtFontSizeLabel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="Cỡ chữ phụ đề: 16 sp"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.slider.Slider
-                        android:id="@+id/sliderFontSize"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:stepSize="1"
-                        android:value="16"
-                        android:valueFrom="12"
-                        android:valueTo="28" />
-
-                    <TextView
-                        android:id="@+id/txtBgAlphaLabel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="Độ đậm nền che phụ đề: 95%"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.slider.Slider
-                        android:id="@+id/sliderBgAlpha"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:stepSize="5"
-                        android:value="95"
-                        android:valueFrom="40"
-                        android:valueTo="100" />
-
-                    <TextView
-                        android:id="@+id/txtAutoHideLabel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="Tự ẩn phụ đề khi đứng yên: Tắt"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
-
-                    <com.google.android.material.slider.Slider
-                        android:id="@+id/sliderAutoHide"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:stepSize="1"
-                        android:value="0"
-                        android:valueFrom="0"
-                        android:valueTo="15" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="Màu chữ phụ đề"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
 
                     <com.google.android.material.chip.ChipGroup
                         android:id="@+id/chipGroupColor"
@@ -1008,20 +858,135 @@
                             style="@style/Widget.Material3.Chip.Filter"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Xanh lá"
+                            android:text="Xanh"
                             android:textColor="@color/accent_green" />
                     </com.google.android.material.chip.ChipGroup>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchSmartColorMatch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:checked="true"
+                        android:text="Tiệp màu nền game"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchCinemaOutline"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="false"
+                        android:text="Viền đen không nền"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAutoFitText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Tự co chữ chống tràn"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAutoFadeBubble"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Tự mờ nút 🎯"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchLockBubble"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="false"
+                        android:text="Khóa vị trí nút 🎯"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/txtScanSpeedLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Quét: 500ms"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderScanSpeed"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:stepSize="50"
+                        android:value="500"
+                        android:valueFrom="300"
+                        android:valueTo="1500" />
+
+                    <TextView
+                        android:id="@+id/txtFontSizeLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Cỡ chữ: 16sp"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderFontSize"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:stepSize="1"
+                        android:value="16"
+                        android:valueFrom="12"
+                        android:valueTo="28" />
+
+                    <TextView
+                        android:id="@+id/txtBgAlphaLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Độ đậm nền: 95%"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderBgAlpha"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:stepSize="5"
+                        android:value="95"
+                        android:valueFrom="40"
+                        android:valueTo="100" />
+
+                    <TextView
+                        android:id="@+id/txtAutoHideLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Tự ẩn: Tắt"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderAutoHide"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:stepSize="1"
+                        android:value="0"
+                        android:valueFrom="0"
+                        android:valueTo="15" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ==================== THƯ MỤC 4: ĐỌC PHỤ ĐỀ GIỌNG NÓI (TTS OFFLINE) ==================== -->
+        <!-- ==================== 4. GIỌNG ĐỌC TTS ==================== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="10dp"
+            android:layout_marginBottom="8dp"
             app:cardBackgroundColor="@color/surface_card"
-            app:cardCornerRadius="16dp"
+            app:cardCornerRadius="14dp"
             app:cardElevation="0dp"
             app:strokeColor="@color/stroke_subtle"
             app:strokeWidth="1dp">
@@ -1040,15 +1005,15 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="14dp">
+                    android:padding="12dp">
 
                     <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
                         android:layout_marginEnd="12dp"
                         android:background="@drawable/bg_icon_badge"
-                        android:contentDescription="Đọc phụ đề bằng giọng nói"
-                        android:padding="8dp"
+                        android:contentDescription="Giọng đọc"
+                        android:padding="7dp"
                         android:src="@drawable/ic_sec_tts" />
 
                     <LinearLayout
@@ -1060,25 +1025,26 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Đọc phụ đề (Giọng nói Offline)"
+                            android:text="Giọng đọc TTS"
                             android:textColor="@color/text_primary"
-                            android:textSize="15sp"
+                            android:textSize="14.5sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:id="@+id/summaryTts"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="Đang tắt • Miễn phí 0ms"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="Tắt"
                             android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
+                            android:textSize="11.5sp" />
                     </LinearLayout>
 
                     <ImageView
                         android:id="@+id/arrowTts"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
                         android:contentDescription="Mở rộng"
                         android:src="@drawable/ic_chevron_down" />
                 </LinearLayout>
@@ -1088,8 +1054,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:paddingHorizontal="16dp"
-                    android:paddingBottom="16dp"
+                    android:paddingHorizontal="14dp"
+                    android:paddingBottom="14dp"
                     android:visibility="gone">
 
                     <com.google.android.material.materialswitch.MaterialSwitch
@@ -1097,14 +1063,14 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:checked="false"
-                        android:text="Tự động đọc bản dịch tiếng Việt khi có thoại mới"
+                        android:text="Đọc phụ đề tiếng Việt"
                         android:textColor="@color/text_primary"
                         android:textSize="13sp" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="6dp"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
 
@@ -1112,23 +1078,30 @@
                             android:id="@+id/btnSelectVoice"
                             style="@style/Widget.Material3.Button.TonalButton"
                             android:layout_width="0dp"
-                            android:layout_height="42dp"
+                            android:layout_height="40dp"
                             android:layout_marginEnd="8dp"
-                            android:layout_weight="2"
-                            android:text="Chọn giọng: Mặc định"
+                            android:layout_weight="1"
+                            android:text="Mặc định"
                             android:textSize="12sp"
-                            app:cornerRadius="10dp" />
+                            app:cornerRadius="10dp"
+                            app:icon="@drawable/ic_mic"
+                            app:iconSize="16dp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnTestVoice"
                             style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="42dp"
-                            android:layout_weight="1"
-                            android:text="🔊 Thử"
-                            android:textColor="@color/accent_green"
-                            android:textSize="12sp"
+                            android:layout_width="46dp"
+                            android:layout_height="40dp"
+                            android:contentDescription="Nghe thử"
+                            android:insetLeft="0dp"
+                            android:insetRight="0dp"
+                            android:padding="0dp"
                             app:cornerRadius="10dp"
+                            app:icon="@drawable/ic_volume"
+                            app:iconGravity="textStart"
+                            app:iconPadding="0dp"
+                            app:iconSize="18dp"
+                            app:iconTint="@color/accent_green"
                             app:strokeColor="@color/accent_green" />
                     </LinearLayout>
 
@@ -1136,10 +1109,10 @@
                         android:id="@+id/txtTtsRateLabel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:text="Tốc độ đọc: 1.15x"
+                        android:layout_marginTop="6dp"
+                        android:text="Tốc độ: 1.15x"
                         android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
+                        android:textSize="12sp" />
 
                     <com.google.android.material.slider.Slider
                         android:id="@+id/sliderTtsRate"
@@ -1153,13 +1126,13 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ==================== THƯ MỤC 5: PHÍM TẮT TAY CẦM & ĐỘ ỔN ĐỊNH ==================== -->
+        <!-- ==================== 5. TAY CẦM & NỀN ==================== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="10dp"
+            android:layout_marginBottom="8dp"
             app:cardBackgroundColor="@color/surface_card"
-            app:cardCornerRadius="16dp"
+            app:cardCornerRadius="14dp"
             app:cardElevation="0dp"
             app:strokeColor="@color/stroke_subtle"
             app:strokeWidth="1dp">
@@ -1178,15 +1151,15 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="14dp">
+                    android:padding="12dp">
 
                     <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
                         android:layout_marginEnd="12dp"
                         android:background="@drawable/bg_icon_badge"
-                        android:contentDescription="Phím tay cầm và ổn định"
-                        android:padding="8dp"
+                        android:contentDescription="Tay cầm"
+                        android:padding="7dp"
                         android:src="@drawable/ic_sec_gamepad" />
 
                     <LinearLayout
@@ -1198,25 +1171,26 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Phím Tay cầm &amp; Độ ổn định"
+                            android:text="Tay cầm &amp; Nền"
                             android:textColor="@color/text_primary"
-                            android:textSize="15sp"
+                            android:textSize="14.5sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:id="@+id/summaryGamepad"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="Thoại: R3 • Toàn màn hình: L3"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="R3 / L3"
                             android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
+                            android:textSize="11.5sp" />
                     </LinearLayout>
 
                     <ImageView
                         android:id="@+id/arrowGamepad"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
                         android:contentDescription="Mở rộng"
                         android:src="@drawable/ic_chevron_down" />
                 </LinearLayout>
@@ -1226,8 +1200,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:paddingHorizontal="16dp"
-                    android:paddingBottom="16dp"
+                    android:paddingHorizontal="14dp"
+                    android:paddingBottom="14dp"
                     android:visibility="gone">
 
                     <com.google.android.material.materialswitch.MaterialSwitch
@@ -1235,23 +1209,31 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:checked="false"
-                        android:text="Chế độ 0% nháy (Chỉ dịch khi bấm phím tay cầm / chạm ⚡)"
+                        android:text="Chế độ 0% nháy (bấm để dịch)"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAutoSwitchProfile"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Tự đổi Profile theo game"
                         android:textColor="@color/text_primary"
                         android:textSize="13sp" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Phím tay cầm dịch câu thoại:"
+                        android:layout_marginTop="4dp"
+                        android:text="Phím dịch thoại"
                         android:textColor="@color/text_secondary"
-                        android:textSize="12.5sp" />
+                        android:textSize="12sp" />
 
                     <com.google.android.material.chip.ChipGroup
                         android:id="@+id/chipGroupHotkeySub"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
                         app:selectionRequired="true"
                         app:singleSelection="true">
 
@@ -1292,16 +1274,15 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Phím tay cầm dịch toàn màn hình (Menu / Kho đồ):"
+                        android:layout_marginTop="4dp"
+                        android:text="Phím toàn màn"
                         android:textColor="@color/text_secondary"
-                        android:textSize="12.5sp" />
+                        android:textSize="12sp" />
 
                     <com.google.android.material.chip.ChipGroup
                         android:id="@+id/chipGroupHotkeyFull"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
                         app:selectionRequired="true"
                         app:singleSelection="true">
 
@@ -1339,48 +1320,51 @@
                             android:textColor="@color/text_secondary" />
                     </com.google.android.material.chip.ChipGroup>
 
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchAutoSwitchProfile"
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:checked="true"
-                        android:text="Tự đổi Profile theo Game đang mở (cần bật Trợ năng)"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp" />
+                        android:orientation="horizontal">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnEnableGamepadService"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:layout_marginTop="10dp"
-                        android:text="BẬT DỊCH VỤ PHÍM TAY CẦM (TRỢ NĂNG)"
-                        android:textSize="12.5sp"
-                        app:cornerRadius="10dp" />
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnEnableGamepadService"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="40dp"
+                            android:layout_marginEnd="6dp"
+                            android:layout_weight="1"
+                            android:text="Trợ năng"
+                            android:textSize="12sp"
+                            app:cornerRadius="10dp"
+                            app:icon="@drawable/ic_accessibility"
+                            app:iconSize="16dp" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnBatteryOpt"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:layout_marginTop="8dp"
-                        android:text="BẬT CHỐNG TẮT NỀN (MIỄN TỐI ƯU PIN)"
-                        android:textColor="@color/accent_amber"
-                        android:textSize="12.5sp"
-                        app:cornerRadius="10dp"
-                        app:strokeColor="@color/accent_amber" />
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnBatteryOpt"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="40dp"
+                            android:layout_weight="1"
+                            android:text="Chống tắt"
+                            android:textColor="@color/accent_amber"
+                            android:textSize="12sp"
+                            app:cornerRadius="10dp"
+                            app:icon="@drawable/ic_battery"
+                            app:iconSize="16dp"
+                            app:iconTint="@color/accent_amber"
+                            app:strokeColor="@color/accent_amber" />
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ==================== THƯ MỤC 6: TIỆN ÍCH, LỊCH SỬ & CẬP NHẬT OTA ==================== -->
+        <!-- ==================== 6. TIỆN ÍCH & OTA (3x2 ICON TILE GRID) ==================== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="20dp"
+            android:layout_marginBottom="16dp"
             app:cardBackgroundColor="@color/surface_card"
-            app:cardCornerRadius="16dp"
+            app:cardCornerRadius="14dp"
             app:cardElevation="0dp"
             app:strokeColor="@color/stroke_subtle"
             app:strokeWidth="1dp">
@@ -1399,15 +1383,15 @@
                     android:foreground="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="14dp">
+                    android:padding="12dp">
 
                     <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
                         android:layout_marginEnd="12dp"
                         android:background="@drawable/bg_icon_badge"
-                        android:contentDescription="Tiện ích và cập nhật OTA"
-                        android:padding="8dp"
+                        android:contentDescription="Tiện ích"
+                        android:padding="7dp"
                         android:src="@drawable/ic_sec_tools" />
 
                     <LinearLayout
@@ -1419,25 +1403,26 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Tiện ích, Lịch sử &amp; OTA"
+                            android:text="Tiện ích &amp; OTA"
                             android:textColor="@color/text_primary"
-                            android:textSize="15sp"
+                            android:textSize="14.5sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:id="@+id/summaryTools"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="Sao lưu JSON • Lịch sử • Nhật ký • OTA"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="Sao lưu • Thống kê • OTA"
                             android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
+                            android:textSize="11.5sp" />
                     </LinearLayout>
 
                     <ImageView
                         android:id="@+id/arrowTools"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
                         android:contentDescription="Mở rộng"
                         android:src="@drawable/ic_chevron_down" />
                 </LinearLayout>
@@ -1447,104 +1432,140 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:paddingHorizontal="16dp"
-                    android:paddingBottom="16dp"
+                    android:paddingHorizontal="12dp"
+                    android:paddingBottom="12dp"
                     android:visibility="gone">
 
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="• 1 chạm 🎯 (hoặc ⚡): Khoanh vùng thoại (hoặc dịch ngay ở chế độ 0% nháy).\n• Chạm đúp 🎯: Dịch toàn màn hình Menu / Kho đồ.\n• Nhấn giữ 🎯: Mở menu nhanh (Bật/Tắt đọc thoại, Đổi ngôn ngữ, Vị trí Sub, Profile)."
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12.5sp" />
-
+                    <!-- Row 1: Backup / Restore / Stats -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
                         android:orientation="horizontal">
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnExportBackup"
                             style="@style/Widget.Material3.Button.TonalButton"
                             android:layout_width="0dp"
-                            android:layout_height="44dp"
+                            android:layout_height="64dp"
                             android:layout_marginEnd="6dp"
                             android:layout_weight="1"
-                            android:text="💾 Xuất JSON"
-                            android:textSize="12.5sp"
-                            app:cornerRadius="10dp" />
+                            android:paddingHorizontal="4dp"
+                            android:text="Xuất"
+                            android:textSize="11.5sp"
+                            app:cornerRadius="12dp"
+                            app:icon="@drawable/ic_export"
+                            app:iconGravity="top"
+                            app:iconPadding="4dp"
+                            app:iconSize="20dp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnImportBackup"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            style="@style/Widget.Material3.Button.TonalButton"
                             android:layout_width="0dp"
-                            android:layout_height="44dp"
+                            android:layout_height="64dp"
+                            android:layout_marginEnd="6dp"
                             android:layout_weight="1"
-                            android:text="📂 Nhập JSON"
-                            android:textColor="@color/accent_cyan"
-                            android:textSize="12.5sp"
-                            app:cornerRadius="10dp"
-                            app:strokeColor="@color/accent_cyan" />
+                            android:paddingHorizontal="4dp"
+                            android:text="Nhập"
+                            android:textSize="11.5sp"
+                            app:cornerRadius="12dp"
+                            app:icon="@drawable/ic_import"
+                            app:iconGravity="top"
+                            app:iconPadding="4dp"
+                            app:iconSize="20dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnViewStats"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="64dp"
+                            android:layout_weight="1"
+                            android:paddingHorizontal="4dp"
+                            android:text="Thống kê"
+                            android:textSize="11.5sp"
+                            app:cornerRadius="12dp"
+                            app:icon="@drawable/ic_stats"
+                            app:iconGravity="top"
+                            app:iconPadding="4dp"
+                            app:iconSize="20dp" />
                     </LinearLayout>
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnViewStats"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
+                    <!-- Row 2: History / Log / OTA -->
+                    <LinearLayout
                         android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:layout_marginTop="8dp"
-                        android:text="📊 THỐNG KÊ TỐC ĐỘ &amp; TIẾT KIỆM AI"
-                        android:textColor="@color/accent_green"
-                        android:textSize="12.5sp"
-                        app:cornerRadius="10dp"
-                        app:strokeColor="@color/accent_green" />
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:orientation="horizontal">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnViewHistory"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:layout_marginTop="8dp"
-                        android:text="XEM LỊCH SỬ HỘI THOẠI"
-                        android:textSize="13sp"
-                        app:cornerRadius="10dp" />
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnViewHistory"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="64dp"
+                            android:layout_marginEnd="6dp"
+                            android:layout_weight="1"
+                            android:paddingHorizontal="4dp"
+                            android:text="Lịch sử"
+                            android:textColor="@color/text_primary"
+                            android:textSize="11.5sp"
+                            app:cornerRadius="12dp"
+                            app:icon="@drawable/ic_history"
+                            app:iconGravity="top"
+                            app:iconPadding="4dp"
+                            app:iconSize="20dp"
+                            app:iconTint="@color/accent_cyan"
+                            app:strokeColor="@color/stroke_subtle" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnViewLogs"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:layout_marginTop="8dp"
-                        android:text="NHẬT KÝ CHẨN ĐOÁN (DEBUG LOG)"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12.5sp"
-                        app:cornerRadius="10dp"
-                        app:strokeColor="@color/stroke_subtle" />
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnViewLogs"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="64dp"
+                            android:layout_marginEnd="6dp"
+                            android:layout_weight="1"
+                            android:paddingHorizontal="4dp"
+                            android:text="Nhật ký"
+                            android:textColor="@color/text_primary"
+                            android:textSize="11.5sp"
+                            app:cornerRadius="12dp"
+                            app:icon="@drawable/ic_bug"
+                            app:iconGravity="top"
+                            app:iconPadding="4dp"
+                            app:iconSize="20dp"
+                            app:iconTint="@color/accent_amber"
+                            app:strokeColor="@color/stroke_subtle" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnUpdate"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="44dp"
-                        android:layout_marginTop="8dp"
-                        android:text="KIỂM TRA CẬP NHẬT (GITHUB OTA)"
-                        android:textColor="@color/text_primary"
-                        android:textSize="13sp"
-                        app:cornerRadius="10dp"
-                        app:strokeColor="@color/stroke_subtle" />
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnUpdate"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="64dp"
+                            android:layout_weight="1"
+                            android:paddingHorizontal="4dp"
+                            android:text="OTA"
+                            android:textColor="@color/text_primary"
+                            android:textSize="11.5sp"
+                            app:cornerRadius="12dp"
+                            app:icon="@drawable/ic_update"
+                            app:iconGravity="top"
+                            app:iconPadding="4dp"
+                            app:iconSize="20dp"
+                            app:iconTint="@color/accent_green"
+                            app:strokeColor="@color/stroke_subtle" />
+                    </LinearLayout>
 
                     <TextView
                         android:id="@+id/txtStatus"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="6dp"
                         android:gravity="center"
                         android:text=""
                         android:textColor="@color/accent_amber"
-                        android:textSize="12.5sp" />
+                        android:textSize="11.5sp" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
