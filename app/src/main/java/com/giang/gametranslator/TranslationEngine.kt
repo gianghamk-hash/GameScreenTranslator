@@ -2,6 +2,7 @@ package com.giang.gametranslator
 
 import android.app.DownloadManager
 import android.content.Context
+import android.util.Base64
 import android.os.Handler
 import android.os.Looper
 import com.google.mlkit.common.model.DownloadConditions
@@ -192,6 +193,151 @@ class TranslationEngine(private val appContext: Context) {
                 onError("Chưa nhập API Key cho ${settings.aiProvider.label}!")
             }
         }
+    }
+
+    // ==================== 1B. AI VISION ĐỌC ẢNH & DỊCH TRỰC TIẾP (GEMINI) ====================
+    fun translateImageWithVision(
+        jpegBytes: ByteArray,
+        settings: TranslatorSettings,
+        onSuccess: (translated: String) -> Unit,
+        onError: (message: String) -> Unit
+    ) {
+        val keys = settings.apiKeys()
+        if (keys.isEmpty()) {
+            onError("AI Vision cần ít nhất 1 Gemini API Key!")
+            return
+        }
+        val base64Img = Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
+        translateImageWithGeminiInternal(
+            base64Img = base64Img,
+            settings = settings,
+            keys = keys,
+            triedKeys = emptySet(),
+            allowThinkingConfig = (settings.modelName.contains("3.") || settings.modelName.contains("2.5")),
+            onSuccess = onSuccess,
+            onError = onError
+        )
+    }
+
+    private fun translateImageWithGeminiInternal(
+        base64Img: String,
+        settings: TranslatorSettings,
+        keys: List<String>,
+        triedKeys: Set<String>,
+        allowThinkingConfig: Boolean,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val picked = pickAvailableKey(keys, triedKeys)
+        if (picked == null) {
+            onError("Gemini Vision chạm giới hạn 429, đang tạm nghỉ 35s...")
+            return
+        }
+        val (apiKey, keyNum) = picked
+        cancelActiveRequest()
+
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/${settings.modelName}:generateContent?key=$apiKey"
+        val (systemText, _) = buildSinglePrompts("", settings)
+        val visionInstruction = buildString {
+            append("Đọc toàn bộ chữ thoại game (${settings.sourceLanguage.vietnameseName}) trong ảnh này và dịch sang tiếng Việt. ")
+            if (settings.verticalCjkMode &&
+                (settings.sourceLanguage == SourceLanguage.JAPANESE || settings.sourceLanguage == SourceLanguage.CHINESE)
+            ) {
+                append("Chữ có thể viết theo cột dọc từ phải sang trái. ")
+            }
+            if (settings.choiceFormatter) {
+                append("Nếu là danh sách nhiều lựa chọn, giữ nguyên từng dòng đánh số 1., 2., 3. ")
+            }
+            append("Nếu ảnh KHÔNG có chữ thoại game rõ ràng hoặc chỉ là chữ HUD rác (${settings.ocrBlacklist}), chỉ trả về đúng chuỗi NO_TEXT. ")
+            append("Chỉ trả về duy nhất bản dịch tiếng Việt, không giải thích.")
+        }
+
+        val generationConfig = JSONObject().apply {
+            put("temperature", 0.2)
+            put("maxOutputTokens", 300)
+            if (allowThinkingConfig) {
+                put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+            }
+        }
+
+        val partsArr = JSONArray().apply {
+            put(JSONObject().put("text", visionInstruction))
+            put(
+                JSONObject().put(
+                    "inlineData",
+                    JSONObject()
+                        .put("mimeType", "image/jpeg")
+                        .put("data", base64Img)
+                )
+            )
+        }
+
+        val jsonBody = JSONObject().apply {
+            put("systemInstruction", JSONObject().apply {
+                put("parts", JSONArray().put(JSONObject().put("text", systemText)))
+            })
+            put("contents", JSONArray().apply {
+                put(JSONObject().put("parts", partsArr))
+            })
+            put("generationConfig", generationConfig)
+        }
+
+        val request = Request.Builder()
+            .url(url)
+            .post(jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+
+        val call = httpClient.newCall(request)
+        activeCall = call
+
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (call.isCanceled()) return
+                DiagnosticLogStore.warn(appContext, "Lỗi mạng Gemini Vision: ${e.message}")
+                onError("Lỗi mạng Vision: ${e.message}")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (call.isCanceled()) {
+                    response.close()
+                    return
+                }
+                response.use {
+                    val bodyStr = it.body?.string() ?: ""
+                    if (it.isSuccessful) {
+                        try {
+                            val json = JSONObject(bodyStr)
+                            val translated = json.getJSONArray("candidates")
+                                .getJSONObject(0)
+                                .getJSONObject("content")
+                                .getJSONArray("parts")
+                                .getJSONObject(0)
+                                .getString("text")
+                                .trim()
+                                .removeSurrounding(""")
+                            onSuccess(translated)
+                        } catch (e: Exception) {
+                            DiagnosticLogStore.error(appContext, "Lỗi parse JSON Vision: ${e.message}")
+                            onError("Lỗi đọc kết quả Vision: ${e.message}")
+                        }
+                    } else if (it.code == 429) {
+                        markKeyRateLimited("Gemini Vision", apiKey, keyNum)
+                        translateImageWithGeminiInternal(
+                            base64Img, settings, keys, triedKeys + apiKey,
+                            allowThinkingConfig, onSuccess, onError
+                        )
+                    } else if (it.code == 400 && allowThinkingConfig) {
+                        translateImageWithGeminiInternal(
+                            base64Img, settings, keys, triedKeys,
+                            false, onSuccess, onError
+                        )
+                    } else {
+                        DiagnosticLogStore.error(appContext, "Gemini Vision HTTP ${it.code}: ${bodyStr.take(80)}")
+                        onError("Lỗi Vision ${it.code}: ${bodyStr.take(90)}")
+                    }
+                }
+            }
+        })
     }
 
     // ==================== 2. DỊCH LÔ TOÀN MÀN HÌNH ====================

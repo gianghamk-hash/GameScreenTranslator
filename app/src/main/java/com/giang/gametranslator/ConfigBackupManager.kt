@@ -36,6 +36,8 @@ object ConfigBackupManager {
             put("customGlossary", s.customGlossary)
             put("ocrBlacklist", s.ocrBlacklist)
             put("verticalCjkMode", s.verticalCjkMode)
+            put("hdOcrEnhance", s.hdOcrEnhance)
+            put("aiVisionOcr", s.aiVisionOcr)
             put("autoSwitchProfile", s.autoSwitchProfile)
             put("subtitlePositionMode", s.subtitlePositionMode.name)
             put("cinemaOutlineMode", s.cinemaOutlineMode)
@@ -92,6 +94,8 @@ object ConfigBackupManager {
             customGlossary = o.optString("customGlossary", base.customGlossary),
             ocrBlacklist = o.optString("ocrBlacklist", base.ocrBlacklist),
             verticalCjkMode = o.optBoolean("verticalCjkMode", base.verticalCjkMode),
+            hdOcrEnhance = o.optBoolean("hdOcrEnhance", base.hdOcrEnhance),
+            aiVisionOcr = o.optBoolean("aiVisionOcr", base.aiVisionOcr),
             autoSwitchProfile = o.optBoolean("autoSwitchProfile", base.autoSwitchProfile),
             subtitlePositionMode = SubtitlePositionMode.fromName(
                 o.optString("subtitlePositionMode", base.subtitlePositionMode.name),

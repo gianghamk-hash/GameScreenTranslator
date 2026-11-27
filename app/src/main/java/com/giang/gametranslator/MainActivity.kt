@@ -72,6 +72,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var edtModelName: TextInputEditText
     private lateinit var edtAltApiKey: TextInputEditText
     private lateinit var edtAltModelName: TextInputEditText
+    private lateinit var switchHdOcrEnhance: MaterialSwitch
+    private lateinit var switchAiVisionOcr: MaterialSwitch
     private lateinit var txtOfflinePackTitle: TextView
     private lateinit var txtOfflineStatus: TextView
     private lateinit var btnDownloadOffline: MaterialButton
@@ -185,10 +187,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "3.2"
+            val vName = info.versionName ?: "3.3"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v3.2"
+            "v3.3"
         }
     }
 
@@ -274,6 +276,8 @@ class MainActivity : AppCompatActivity() {
         edtModelName = findViewById(R.id.edtModelName)
         edtAltApiKey = findViewById(R.id.edtAltApiKey)
         edtAltModelName = findViewById(R.id.edtAltModelName)
+        switchHdOcrEnhance = findViewById(R.id.switchHdOcrEnhance)
+        switchAiVisionOcr = findViewById(R.id.switchAiVisionOcr)
         txtOfflinePackTitle = findViewById(R.id.txtOfflinePackTitle)
         txtOfflineStatus = findViewById(R.id.txtOfflineStatus)
         btnDownloadOffline = findViewById(R.id.btnDownloadOffline)
@@ -442,7 +446,8 @@ class MainActivity : AppCompatActivity() {
             AiProvider.OPENROUTER -> "OpenRouter"
             AiProvider.DEEPSEEK -> "DeepSeek"
         }
-        summaryEngine.text = "${s.sourceLanguage.shortLabel} • $shortProvider • $shortMode"
+        val visionTag = if (s.aiVisionOcr) " • Vision" else if (s.hdOcrEnhance) " • HD" else ""
+        summaryEngine.text = "${s.sourceLanguage.shortLabel} • $shortProvider • $shortMode$visionTag"
 
         val shortStyle = when (s.translationStyle) {
             TranslationStyle.RPG_FANTASY -> "RPG"
@@ -728,6 +733,8 @@ class MainActivity : AppCompatActivity() {
         edtModelName.setText(s.modelName)
         edtAltApiKey.setText(s.altApiKey)
         edtAltModelName.setText(s.altModelName)
+        switchHdOcrEnhance.isChecked = s.hdOcrEnhance
+        switchAiVisionOcr.isChecked = s.aiVisionOcr
 
         when (s.translationStyle) {
             TranslationStyle.RPG_FANTASY -> chipGroupStyle.check(R.id.chipStyleRpg)
@@ -823,6 +830,8 @@ class MainActivity : AppCompatActivity() {
         chipGroupHotkeySub.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
         chipGroupHotkeyFull.setOnCheckedStateChangeListener { _, _ -> updateFolderSummaries() }
 
+        switchHdOcrEnhance.setOnCheckedChangeListener { _, _ -> updateFolderSummaries() }
+        switchAiVisionOcr.setOnCheckedChangeListener { _, _ -> updateFolderSummaries() }
         switchAntiDuplicate.setOnCheckedChangeListener { _, _ -> updateFolderSummaries() }
         switchCinemaOutline.setOnCheckedChangeListener { _, _ ->
             updateSliderLabelsAndPreview()
@@ -998,6 +1007,8 @@ class MainActivity : AppCompatActivity() {
             customGlossary = edtGlossary.text?.toString()?.trim() ?: "",
             ocrBlacklist = edtOcrBlacklist.text?.toString()?.trim() ?: "",
             verticalCjkMode = switchVerticalCjk.isChecked,
+            hdOcrEnhance = switchHdOcrEnhance.isChecked,
+            aiVisionOcr = switchAiVisionOcr.isChecked,
             autoSwitchProfile = switchAutoSwitchProfile.isChecked,
             subtitlePositionMode = posMode,
             smartColorMatch = switchSmartColorMatch.isChecked,

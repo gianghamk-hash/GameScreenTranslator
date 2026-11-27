@@ -47,7 +47,7 @@
                 android:background="@drawable/bg_icon_badge"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
-                android:text="v3.2"
+                android:text="v3.3"
                 android:textColor="@color/accent_cyan"
                 android:textSize="11.5sp"
                 android:textStyle="bold" />
@@ -435,6 +435,25 @@
                             android:singleLine="true"
                             android:textColor="@color/text_primary" />
                     </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchHdOcrEnhance"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:checked="false"
+                        android:text="Tăng nét OCR (HD 75%)"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAiVisionOcr"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="false"
+                        android:text="AI Vision đọc ảnh (Gemini)"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
 
                     <!-- Offline Pack -->
                     <LinearLayout

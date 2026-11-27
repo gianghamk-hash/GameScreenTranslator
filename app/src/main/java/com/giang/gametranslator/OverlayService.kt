@@ -17,6 +17,8 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.PorterDuff
@@ -53,6 +55,7 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.max
@@ -76,6 +79,7 @@ class OverlayService : Service() {
     private var fullScreenOverlayView: FullScreenTranslationView? = null
     private var historyOverlayView: View? = null
     private var profilePickerView: View? = null
+    private var instantResultOverlayView: View? = null
 
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -200,7 +204,7 @@ class OverlayService : Service() {
 
             val modalOpen = isSelectingRegion || quickMenuView != null ||
                 fullScreenOverlayView != null || historyOverlayView != null ||
-                profilePickerView != null || isFullScreenBusy
+                profilePickerView != null || instantResultOverlayView != null || isFullScreenBusy
             if (!isPaused && !modalOpen && !isOcrRunning.get() && !isPeeking) {
                 triggerCaptureCycle(forceManual = false)
             } else {
@@ -234,9 +238,13 @@ class OverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             SettingsStore.ACTION_RELOAD_SETTINGS -> {
+                val prevHd = settings.hdOcrEnhance
                 reloadSettingsFromStore()
                 mainHandler.removeCallbacks(autoHideRunnable)
                 resetSampledColor()
+                if (isRunning && prevHd != settings.hdOcrEnhance) {
+                    recreateVirtualDisplay()
+                }
                 applyOverlayStyleAndPosition()
                 updateBubbleAppearance()
                 deduplicator.resetFrameSignature()
@@ -336,7 +344,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v3.2 đang chạy")
+            .setContentTitle("Game Screen Translator v3.3 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
@@ -712,8 +720,26 @@ class OverlayService : Service() {
             container.addView(tv)
         }
 
-        addMenuItem("🖥 Dịch toàn màn hình (Menu / Kho đồ)", "#FF00D4FF") {
+        addMenuItem("🔍 Quét nhanh 1 vùng tạm (không mất khung chính)", "#FF00D4FF") {
+            openInstantAreaScanOverlay()
+        }
+
+        addMenuItem("🖥 Dịch toàn màn hình (Menu / Kho đồ)", "#FF38BDF8") {
             triggerFullScreenTranslate()
+        }
+
+        addMenuItem(
+            if (settings.aiVisionOcr) "👁 Đang bật: AI Vision đọc ảnh trực tiếp" else "👁 Bật: AI Vision đọc ảnh trực tiếp (font khó)",
+            "#FFA78BFA"
+        ) {
+            settings = settings.copy(aiVisionOcr = !settings.aiVisionOcr)
+            SettingsStore.save(this, settings)
+            deduplicator.resetSession()
+            Toast.makeText(
+                this,
+                if (settings.aiVisionOcr) "Đã bật Gemini Vision đọc ảnh trực tiếp!" else "Đã quay về ML Kit OCR",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         addMenuItem("📍 Vị trí: ${settings.subtitlePositionMode.label}", "#FF4ADE80") {
@@ -1379,12 +1405,13 @@ class OverlayService : Service() {
         closeHistoryOverlay()
         closeProfilePickerOverlay()
         closeFullScreenOverlay()
+        closeInstantResultOverlay()
         isSelectingRegion = true
         overlayTextView.visibility = View.GONE
         hasActiveSubtitle = false
         lastDisplayedText = ""
 
-        selectionView = CropSelectionView(this) { leftPct, topPct, rightPct, bottomPct ->
+        selectionView = CropSelectionView(this, "Kéo ngón tay khoanh kín vùng Eng-Sub của game", Color.parseColor("#FF00D4FF")) { leftPct, topPct, rightPct, bottomPct ->
             cropLeftPct = leftPct
             cropTopPct = topPct
             cropRightPct = rightPct
@@ -1431,6 +1458,252 @@ class OverlayService : Service() {
         isSelectingRegion = false
     }
 
+    // ==================== QUÉT NHANH 1 VÙNG TẠM (KHÔNG MẤT KHUNG CHÍNH) ====================
+    private fun openInstantAreaScanOverlay() {
+        if (isSelectingRegion || isFullScreenBusy) return
+        closeQuickMenuOverlay()
+        closeHistoryOverlay()
+        closeProfilePickerOverlay()
+        closeFullScreenOverlay()
+        closeInstantResultOverlay()
+        isSelectingRegion = true
+
+        selectionView = CropSelectionView(
+            this,
+            "Kéo khoanh vùng bất kỳ để dịch nhanh (giữ nguyên khung chính)",
+            Color.parseColor("#FFF59E0B")
+        ) { leftPct, topPct, rightPct, bottomPct ->
+            closeCropSelectionOverlay()
+            performInstantAreaScan(leftPct, topPct, rightPct, bottomPct)
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+        try {
+            windowManager.addView(selectionView, params)
+        } catch (_: Exception) {
+            selectionView = null
+            isSelectingRegion = false
+        }
+    }
+
+    private fun performInstantAreaScan(leftPct: Float, topPct: Float, rightPct: Float, bottomPct: Float) {
+        val prevOverlayVis = overlayTextView.visibility
+        drainImageReaderSafely()
+        overlayTextView.visibility = View.INVISIBLE
+        floatingButton.visibility = View.INVISIBLE
+        showInstantResultPopup("🔍 Đang dịch vùng chọn...", "")
+
+        captureHandler.postDelayed({
+            val acquired = acquireFullBitmapSafely()
+            mainHandler.post {
+                floatingButton.visibility = View.VISIBLE
+                if (prevOverlayVis == View.VISIBLE && hasActiveSubtitle) {
+                    overlayTextView.visibility = View.VISIBLE
+                }
+            }
+            if (acquired == null) {
+                mainHandler.post { showInstantResultPopup("Không chụp được màn hình, hãy thử lại!", "") }
+                return@postDelayed
+            }
+
+            val (fullBitmap, imgW, imgH) = acquired
+            val cropped = try {
+                val x = (imgW * leftPct).toInt().coerceIn(0, imgW - 10)
+                val y = (imgH * topPct).toInt().coerceIn(0, imgH - 10)
+                val w = (imgW * (rightPct - leftPct)).toInt().coerceIn(10, imgW - x)
+                val h = (imgH * (bottomPct - topPct)).toInt().coerceIn(10, imgH - y)
+                Bitmap.createBitmap(fullBitmap, x, y, w, h)
+            } catch (e: Exception) {
+                mainHandler.post { showInstantResultPopup("Lỗi cắt ảnh: ${e.message}", "") }
+                return@postDelayed
+            } finally {
+                fullBitmap.recycle()
+            }
+
+            val startMs = System.currentTimeMillis()
+            if (settings.aiVisionOcr && settings.apiKeys().isNotEmpty()) {
+                val jpegBytes = compressBitmapToJpegBytes(cropped)
+                cropped.recycle()
+                translationEngine.translateImageWithVision(
+                    jpegBytes = jpegBytes,
+                    settings = settings,
+                    onSuccess = { translated ->
+                        val elapsed = System.currentTimeMillis() - startMs
+                        if (translated.equals("NO_TEXT", ignoreCase = true) || translated.isBlank()) {
+                            mainHandler.post { showInstantResultPopup("Không thấy chữ trong vùng vừa chọn.", "") }
+                        } else {
+                            TranslationStatsStore.recordAi(this, "Gemini Vision", elapsed)
+                            mainHandler.post { showInstantResultPopup(translated, "👁 Vision • ${elapsed}ms") }
+                        }
+                    },
+                    onError = { err ->
+                        mainHandler.post { showInstantResultPopup(err, "") }
+                    }
+                )
+            } else {
+                val ocrBitmap = if (settings.hdOcrEnhance) {
+                    enhanceBitmapForOcr(cropped).also { cropped.recycle() }
+                } else {
+                    cropped
+                }
+                val inputImage = InputImage.fromBitmap(ocrBitmap, 0)
+                getActiveTextRecognizer().process(inputImage)
+                    .addOnSuccessListener { visionText ->
+                        val rawText = extractFormattedOcrText(visionText, settings)
+                        ocrBitmap.recycle()
+                        if (rawText.isBlank()) {
+                            mainHandler.post { showInstantResultPopup("Không tìm thấy chữ trong vùng chọn.", "") }
+                            return@addOnSuccessListener
+                        }
+                        translationEngine.translate(
+                            sourceText = rawText,
+                            settings = settings,
+                            onSuccess = { translated, usedOffline ->
+                                val elapsed = System.currentTimeMillis() - startMs
+                                if (usedOffline) {
+                                    TranslationStatsStore.recordOffline(this, elapsed)
+                                } else {
+                                    TranslationStatsStore.recordAi(this, settings.aiProvider.label, elapsed)
+                                }
+                                val tag = if (usedOffline) "Offline • ${elapsed}ms" else "${settings.aiProvider.label} • ${elapsed}ms"
+                                mainHandler.post { showInstantResultPopup(translated, tag) }
+                            },
+                            onError = { err ->
+                                mainHandler.post { showInstantResultPopup(err, "") }
+                            }
+                        )
+                    }
+                    .addOnFailureListener { e ->
+                        ocrBitmap.recycle()
+                        mainHandler.post { showInstantResultPopup("Lỗi OCR: ${e.message}", "") }
+                    }
+            }
+        }, 40L)
+    }
+
+    private fun showInstantResultPopup(translatedText: String, metaText: String) {
+        closeInstantResultOverlay()
+        val density = resources.displayMetrics.density
+        val (screenW, _) = getScreenBounds()
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((16 * density).toInt(), (14 * density).toInt(), (16 * density).toInt(), (14 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 16f * density
+                setColor(Color.parseColor("#F50D1117"))
+                setStroke((1.5f * density).toInt(), Color.parseColor("#FFF59E0B"))
+            }
+            setOnClickListener {
+                closeInstantResultOverlay()
+                scheduleBubbleFade()
+            }
+        }
+
+        val header = TextView(this).apply {
+            text = if (metaText.isNotEmpty()) "🔍 Dịch nhanh ($metaText) • Chạm để đóng" else "🔍 Dịch nhanh • Chạm để đóng"
+            setTextColor(Color.parseColor("#FFF59E0B"))
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val body = TextView(this).apply {
+            text = translatedText
+            setTextColor(settings.subtitleColor.colorInt)
+            textSize = settings.subtitleFontSizeSp.coerceIn(13f, 20f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, (8 * density).toInt(), 0, (4 * density).toInt())
+        }
+        val btnCopy = TextView(this).apply {
+            text = "📋 Copy bản dịch"
+            setTextColor(Color.parseColor("#FF00D4FF"))
+            textSize = 12f
+            gravity = Gravity.END
+            setPadding(0, (6 * density).toInt(), 0, 0)
+            setOnClickListener {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("InstantTranslate", translatedText))
+                Toast.makeText(this@OverlayService, "Đã copy bản dịch!", Toast.LENGTH_SHORT).show()
+                closeInstantResultOverlay()
+            }
+        }
+
+        box.addView(header)
+        box.addView(body)
+        if (metaText.isNotEmpty()) box.addView(btnCopy)
+
+        val params = WindowManager.LayoutParams(
+            (screenW * 0.86f).toInt().coerceAtMost((420 * density).toInt()),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+
+        instantResultOverlayView = box
+        try {
+            windowManager.addView(box, params)
+        } catch (_: Exception) {
+            instantResultOverlayView = null
+        }
+    }
+
+    private fun closeInstantResultOverlay() {
+        instantResultOverlayView?.let {
+            if (it.isAttachedToWindow) {
+                try {
+                    windowManager.removeView(it)
+                } catch (_: Exception) {
+                }
+            }
+            instantResultOverlayView = null
+        }
+    }
+
+    private fun enhanceBitmapForOcr(src: Bitmap): Bitmap {
+        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val contrast = 1.38f
+        val translate = (-0.5f * contrast + 0.5f) * 255f + 6f
+        val cm = ColorMatrix(
+            floatArrayOf(
+                contrast, 0f, 0f, 0f, translate,
+                0f, contrast, 0f, 0f, translate,
+                0f, 0f, contrast, 0f, translate,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(cm)
+        }
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return out
+    }
+
+    private fun compressBitmapToJpegBytes(src: Bitmap): ByteArray {
+        val maxW = 960
+        val target = if (src.width > maxW) {
+            val newH = (src.height * (maxW.toFloat() / src.width)).toInt().coerceAtLeast(16)
+            Bitmap.createScaledBitmap(src, maxW, newH, true)
+        } else {
+            src
+        }
+        val baos = ByteArrayOutputStream()
+        target.compress(Bitmap.CompressFormat.JPEG, 78, baos)
+        if (target !== src) target.recycle()
+        return baos.toByteArray()
+    }
+
     // ==================== MEDIA PROJECTION & WATCHDOG TỰ HỒI PHỤC ====================
     private fun setupMediaProjection(resultCode: Int, data: Intent) {
         synchronized(imageReaderLock) {
@@ -1465,8 +1738,9 @@ class OverlayService : Service() {
             }
 
             val (screenW, screenH) = getScreenBounds()
-            val width = (screenW / 2).coerceAtLeast(320)
-            val height = (screenH / 2).coerceAtLeast(240)
+            val scale = if (settings.hdOcrEnhance) 0.75f else 0.50f
+            val width = (screenW * scale).toInt().coerceAtLeast(320)
+            val height = (screenH * scale).toInt().coerceAtLeast(240)
             val density = resources.displayMetrics.densityDpi
 
             try {
@@ -1636,7 +1910,52 @@ class OverlayService : Service() {
             return
         }
 
-        val bitmapForOcr = croppedBitmap
+        if (settings.aiVisionOcr && settings.apiKeys().isNotEmpty()) {
+            val seq = ++translationSequence
+            val startMs = System.currentTimeMillis()
+            val jpegBytes = compressBitmapToJpegBytes(croppedBitmap)
+            croppedBitmap.recycle()
+            if (!hasActiveSubtitle || forceManual) {
+                showOverlayMessage("Đang dịch...")
+            }
+            translationEngine.translateImageWithVision(
+                jpegBytes = jpegBytes,
+                settings = settings,
+                onSuccess = { translated ->
+                    isOcrRunning.set(false)
+                    if (seq == translationSequence && isRunning && !isSelectingRegion) {
+                        if (translated.equals("NO_TEXT", ignoreCase = true) || translated.isBlank()) {
+                            hasActiveSubtitle = false
+                            lastDisplayedText = ""
+                            mainHandler.post { overlayTextView.visibility = View.GONE }
+                        } else {
+                            val elapsedMs = System.currentTimeMillis() - startMs
+                            TranslationStatsStore.recordAi(this, "Gemini Vision", elapsedMs)
+                            DialogueHistoryStore.add(this, "[AI Vision]", translated, false)
+                            showOverlayMessage(translated)
+                            if (settings.ttsEnabled && ::subtitleSpeaker.isInitialized) {
+                                subtitleSpeaker.speak(translated, settings.ttsVoiceName, settings.ttsSpeechRate)
+                            }
+                        }
+                    }
+                    if (!forceManual) scheduleNextCapture()
+                },
+                onError = { err ->
+                    isOcrRunning.set(false)
+                    if (seq == translationSequence && isRunning && !isSelectingRegion) {
+                        showOverlayMessage(err)
+                    }
+                    if (!forceManual) scheduleNextCapture()
+                }
+            )
+            return
+        }
+
+        val bitmapForOcr = if (settings.hdOcrEnhance) {
+            enhanceBitmapForOcr(croppedBitmap).also { croppedBitmap.recycle() }
+        } else {
+            croppedBitmap
+        }
         val inputImage = InputImage.fromBitmap(bitmapForOcr, 0)
 
         getActiveTextRecognizer().process(inputImage)
@@ -1885,6 +2204,7 @@ class OverlayService : Service() {
         closeHistoryOverlay()
         closeProfilePickerOverlay()
         closeFullScreenOverlay()
+        closeInstantResultOverlay()
         closeCropSelectionOverlay()
         synchronized(imageReaderLock) {
             try {
@@ -2028,6 +2348,8 @@ class OverlayService : Service() {
 
     private inner class CropSelectionView(
         context: Context,
+        private val promptText: String,
+        borderColorInt: Int,
         private val onRegionSelected: (Float, Float, Float, Float) -> Unit
     ) : View(context) {
 
@@ -2044,7 +2366,7 @@ class OverlayService : Service() {
             xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
         }
         private val borderPaint = Paint().apply {
-            color = Color.parseColor("#FF00D4FF")
+            color = borderColorInt
             style = Paint.Style.STROKE
             strokeWidth = 5f
             isAntiAlias = true
@@ -2067,7 +2389,7 @@ class OverlayService : Service() {
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dimPaint)
             if (!isDragging) {
                 canvas.drawText(
-                    "Kéo ngón tay khoanh kín vùng Eng-Sub của game",
+                    promptText,
                     width / 2f,
                     height / 2f,
                     textPaint

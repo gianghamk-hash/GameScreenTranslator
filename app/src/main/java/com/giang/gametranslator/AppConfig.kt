@@ -121,6 +121,8 @@ data class TranslatorSettings(
     val customGlossary: String = "",
     val ocrBlacklist: String = "SKIP, AUTO, LOG, MENU, FPS, BACK, NEXT",
     val verticalCjkMode: Boolean = false,
+    val hdOcrEnhance: Boolean = false,
+    val aiVisionOcr: Boolean = false,
     val autoSwitchProfile: Boolean = true,
     val subtitlePositionMode: SubtitlePositionMode = SubtitlePositionMode.ABOVE_CROP,
     val cinemaOutlineMode: Boolean = false,
@@ -223,6 +225,8 @@ object SettingsStore {
             customGlossary = p.getString("CUSTOM_GLOSSARY", "") ?: "",
             ocrBlacklist = p.getString("OCR_BLACKLIST", "SKIP, AUTO, LOG, MENU, FPS, BACK, NEXT") ?: "",
             verticalCjkMode = p.getBoolean("VERTICAL_CJK_MODE", false),
+            hdOcrEnhance = p.getBoolean("HD_OCR_ENHANCE", false),
+            aiVisionOcr = p.getBoolean("AI_VISION_OCR", false),
             autoSwitchProfile = p.getBoolean("AUTO_SWITCH_PROFILE", true),
             subtitlePositionMode = SubtitlePositionMode.fromName(savedPosName, legacyCover),
             cinemaOutlineMode = p.getBoolean("CINEMA_OUTLINE_MODE", false),
@@ -265,6 +269,8 @@ object SettingsStore {
             .putString("CUSTOM_GLOSSARY", s.customGlossary.trim())
             .putString("OCR_BLACKLIST", s.ocrBlacklist.trim())
             .putBoolean("VERTICAL_CJK_MODE", s.verticalCjkMode)
+            .putBoolean("HD_OCR_ENHANCE", s.hdOcrEnhance)
+            .putBoolean("AI_VISION_OCR", s.aiVisionOcr)
             .putBoolean("AUTO_SWITCH_PROFILE", s.autoSwitchProfile)
             .putString("SUBTITLE_POSITION_MODE", s.subtitlePositionMode.name)
             .putBoolean("COVER_ENG_SUB", s.coverEngSub)
