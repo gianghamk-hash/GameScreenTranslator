@@ -314,7 +314,7 @@ class TranslationEngine(private val appContext: Context) {
                                 .getJSONObject(0)
                                 .getString("text")
                                 .trim()
-                                .removeSurrounding(""")
+                                .removeSurrounding("\"")
                             onSuccess(translated)
                         } catch (e: Exception) {
                             DiagnosticLogStore.error(appContext, "Lỗi parse JSON Vision: ${e.message}")
