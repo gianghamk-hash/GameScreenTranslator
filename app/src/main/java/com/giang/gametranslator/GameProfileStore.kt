@@ -16,7 +16,11 @@ data class GameProfile(
     val cropTopPct: Float,
     val cropRightPct: Float,
     val cropBottomPct: Float,
-    val linkedPackageName: String = ""
+    val linkedPackageName: String = "",
+    val hdOcrEnhance: Boolean = false,
+    val aiVisionOcr: Boolean = false,
+    val verticalCjkMode: Boolean = false,
+    val cinemaOutlineMode: Boolean = false
 )
 
 /**
@@ -49,7 +53,11 @@ object GameProfileStore {
                         cropTopPct = o.optDouble("top", 0.72).toFloat().coerceIn(0f, 0.95f),
                         cropRightPct = o.optDouble("right", 0.92).toFloat().coerceIn(0.05f, 1f),
                         cropBottomPct = o.optDouble("bottom", 0.95).toFloat().coerceIn(0.05f, 1f),
-                        linkedPackageName = o.optString("pkg", "").trim()
+                        linkedPackageName = o.optString("pkg", "").trim(),
+                        hdOcrEnhance = o.optBoolean("hdOcr", false),
+                        aiVisionOcr = o.optBoolean("aiVision", false),
+                        verticalCjkMode = o.optBoolean("verticalCjk", false),
+                        cinemaOutlineMode = o.optBoolean("cinemaOutline", false)
                     )
                 )
             }
@@ -64,6 +72,9 @@ object GameProfileStore {
             it.linkedPackageName.isNotEmpty() && it.linkedPackageName.equals(packageName, ignoreCase = true)
         }
     }
+
+    fun hasAnyLinkedPackage(context: Context): Boolean =
+        listProfiles(context).any { it.linkedPackageName.isNotBlank() }
 
     fun saveFromSettings(context: Context, profileName: String, s: TranslatorSettings, linkedPackageName: String = "") {
         val cleanName = profileName.trim()
@@ -84,7 +95,11 @@ object GameProfileStore {
             cropTopPct = s.cropTopPct,
             cropRightPct = s.cropRightPct,
             cropBottomPct = s.cropBottomPct,
-            linkedPackageName = finalPkg
+            linkedPackageName = finalPkg,
+            hdOcrEnhance = s.hdOcrEnhance,
+            aiVisionOcr = s.aiVisionOcr,
+            verticalCjkMode = s.verticalCjkMode,
+            cinemaOutlineMode = s.cinemaOutlineMode
         )
         val existingIdx = current.indexOfFirst { it.name.equals(cleanName, ignoreCase = true) }
         if (existingIdx >= 0) {
@@ -108,7 +123,11 @@ object GameProfileStore {
             cropLeftPct = profile.cropLeftPct,
             cropTopPct = profile.cropTopPct,
             cropRightPct = profile.cropRightPct,
-            cropBottomPct = profile.cropBottomPct
+            cropBottomPct = profile.cropBottomPct,
+            hdOcrEnhance = profile.hdOcrEnhance,
+            aiVisionOcr = profile.aiVisionOcr,
+            verticalCjkMode = profile.verticalCjkMode,
+            cinemaOutlineMode = profile.cinemaOutlineMode
         )
         SettingsStore.save(context, updated)
         return updated
@@ -154,7 +173,11 @@ object GameProfileStore {
                     cropTopPct = o.optDouble("top", 0.72).toFloat().coerceIn(0f, 0.95f),
                     cropRightPct = o.optDouble("right", 0.92).toFloat().coerceIn(0.05f, 1f),
                     cropBottomPct = o.optDouble("bottom", 0.95).toFloat().coerceIn(0.05f, 1f),
-                    linkedPackageName = o.optString("pkg", "").trim()
+                    linkedPackageName = o.optString("pkg", "").trim(),
+                    hdOcrEnhance = o.optBoolean("hdOcr", false),
+                    aiVisionOcr = o.optBoolean("aiVision", false),
+                    verticalCjkMode = o.optBoolean("verticalCjk", false),
+                    cinemaOutlineMode = o.optBoolean("cinemaOutline", false)
                 )
             )
         }
@@ -182,6 +205,10 @@ object GameProfileStore {
                     put("right", p.cropRightPct.toDouble())
                     put("bottom", p.cropBottomPct.toDouble())
                     put("pkg", p.linkedPackageName)
+                    put("hdOcr", p.hdOcrEnhance)
+                    put("aiVision", p.aiVisionOcr)
+                    put("verticalCjk", p.verticalCjkMode)
+                    put("cinemaOutline", p.cinemaOutlineMode)
                 }
             )
         }

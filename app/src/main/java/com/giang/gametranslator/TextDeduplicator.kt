@@ -67,7 +67,7 @@ class TextDeduplicator {
         }
     }
 
-    fun isFrameUnchanged(bitmap: Bitmap): Boolean {
+    fun isFrameUnchanged(bitmap: Bitmap, relaxedForVision: Boolean = false): Boolean {
         val cols = 8
         val rows = 4
         val w = bitmap.width
@@ -95,7 +95,8 @@ class TextDeduplicator {
             totalDiff += abs(currentSig[i] - prev[i])
         }
         val avgDiff = totalDiff.toFloat() / currentSig.size
-        return avgDiff < 5.5f
+        val threshold = if (relaxedForVision) 11.5f else 5.5f
+        return avgDiff < threshold
     }
 
     fun resetFrameSignature() {

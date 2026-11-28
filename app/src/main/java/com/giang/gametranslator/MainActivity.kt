@@ -117,6 +117,7 @@ class MainActivity : AppCompatActivity() {
     // Gamepad & Stability
     private lateinit var switchManualTriggerOnly: MaterialSwitch
     private lateinit var switchAutoSwitchProfile: MaterialSwitch
+    private lateinit var switchAutoPauseOutsideGame: MaterialSwitch
     private lateinit var chipGroupHotkeySub: ChipGroup
     private lateinit var chipGroupHotkeyFull: ChipGroup
     private lateinit var btnEnableGamepadService: MaterialButton
@@ -187,10 +188,10 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "3.3"
+            val vName = info.versionName ?: "3.4"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v3.3"
+            "v3.4"
         }
     }
 
@@ -316,6 +317,7 @@ class MainActivity : AppCompatActivity() {
 
         switchManualTriggerOnly = findViewById(R.id.switchManualTriggerOnly)
         switchAutoSwitchProfile = findViewById(R.id.switchAutoSwitchProfile)
+        switchAutoPauseOutsideGame = findViewById(R.id.switchAutoPauseOutsideGame)
         chipGroupHotkeySub = findViewById(R.id.chipGroupHotkeySub)
         chipGroupHotkeyFull = findViewById(R.id.chipGroupHotkeyFull)
         btnEnableGamepadService = findViewById(R.id.btnEnableGamepadService)
@@ -769,6 +771,7 @@ class MainActivity : AppCompatActivity() {
 
         switchManualTriggerOnly.isChecked = s.manualTriggerOnly
         switchAutoSwitchProfile.isChecked = s.autoSwitchProfile
+        switchAutoPauseOutsideGame.isChecked = s.autoPauseOutsideGame
 
         sliderScanSpeed.value = s.scanIntervalMs.toFloat().coerceIn(300f, 1500f)
         sliderFontSize.value = s.subtitleFontSizeSp.coerceIn(12f, 28f)
@@ -1010,6 +1013,7 @@ class MainActivity : AppCompatActivity() {
             hdOcrEnhance = switchHdOcrEnhance.isChecked,
             aiVisionOcr = switchAiVisionOcr.isChecked,
             autoSwitchProfile = switchAutoSwitchProfile.isChecked,
+            autoPauseOutsideGame = switchAutoPauseOutsideGame.isChecked,
             subtitlePositionMode = posMode,
             smartColorMatch = switchSmartColorMatch.isChecked,
             cinemaOutlineMode = switchCinemaOutline.isChecked,

@@ -39,6 +39,9 @@ object ConfigBackupManager {
             put("hdOcrEnhance", s.hdOcrEnhance)
             put("aiVisionOcr", s.aiVisionOcr)
             put("autoSwitchProfile", s.autoSwitchProfile)
+            put("autoPauseOutsideGame", s.autoPauseOutsideGame)
+            put("bubbleXPct", s.bubbleXPct.toDouble())
+            put("bubbleYPct", s.bubbleYPct.toDouble())
             put("subtitlePositionMode", s.subtitlePositionMode.name)
             put("cinemaOutlineMode", s.cinemaOutlineMode)
             put("choiceFormatter", s.choiceFormatter)
@@ -97,6 +100,9 @@ object ConfigBackupManager {
             hdOcrEnhance = o.optBoolean("hdOcrEnhance", base.hdOcrEnhance),
             aiVisionOcr = o.optBoolean("aiVisionOcr", base.aiVisionOcr),
             autoSwitchProfile = o.optBoolean("autoSwitchProfile", base.autoSwitchProfile),
+            autoPauseOutsideGame = o.optBoolean("autoPauseOutsideGame", base.autoPauseOutsideGame),
+            bubbleXPct = o.optDouble("bubbleXPct", base.bubbleXPct.toDouble()).toFloat().coerceIn(0f, 1f),
+            bubbleYPct = o.optDouble("bubbleYPct", base.bubbleYPct.toDouble()).toFloat().coerceIn(0f, 1f),
             subtitlePositionMode = SubtitlePositionMode.fromName(
                 o.optString("subtitlePositionMode", base.subtitlePositionMode.name),
                 false

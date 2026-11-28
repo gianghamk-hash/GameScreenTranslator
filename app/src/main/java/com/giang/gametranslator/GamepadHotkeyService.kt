@@ -24,16 +24,28 @@ class GamepadHotkeyService : AccessibilityService() {
 
         if (!OverlayService.isServiceRunning) return
         val settings = SettingsStore.load(this)
-        if (!settings.autoSwitchProfile) return
+        val matched = GameProfileStore.findByPackage(this, pkg)
 
-        val matched = GameProfileStore.findByPackage(this, pkg) ?: return
-        if (matched.name.equals(settings.activeProfileName, ignoreCase = true)) return
-
-        GameProfileStore.applyProfile(this, matched)
-        startService(Intent(this, OverlayService::class.java).apply {
-            action = SettingsStore.ACTION_RELOAD_SETTINGS
-        })
-        Toast.makeText(this, "🎮 Tự đổi Profile: ${matched.name}", Toast.LENGTH_SHORT).show()
+        if (matched != null) {
+            if (settings.autoSwitchProfile && !matched.name.equals(settings.activeProfileName, ignoreCase = true)) {
+                GameProfileStore.applyProfile(this, matched)
+                startService(Intent(this, OverlayService::class.java).apply {
+                    action = SettingsStore.ACTION_RELOAD_SETTINGS
+                })
+                Toast.makeText(this, "🎮 Tự đổi Profile: ${matched.name}", Toast.LENGTH_SHORT).show()
+            }
+            if (settings.autoPauseOutsideGame) {
+                startService(Intent(this, OverlayService::class.java).apply {
+                    action = SettingsStore.ACTION_SET_AUTO_PAUSE
+                    putExtra("PAUSED", false)
+                })
+            }
+        } else if (settings.autoPauseOutsideGame && GameProfileStore.hasAnyLinkedPackage(this)) {
+            startService(Intent(this, OverlayService::class.java).apply {
+                action = SettingsStore.ACTION_SET_AUTO_PAUSE
+                putExtra("PAUSED", true)
+            })
+        }
     }
 
     override fun onInterrupt() {}

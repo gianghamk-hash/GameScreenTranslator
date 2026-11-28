@@ -47,7 +47,7 @@
                 android:background="@drawable/bg_icon_badge"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="4dp"
-                android:text="v3.3"
+                android:text="v3.4"
                 android:textColor="@color/accent_cyan"
                 android:textSize="11.5sp"
                 android:textStyle="bold" />
@@ -1238,6 +1238,15 @@
                         android:layout_height="wrap_content"
                         android:checked="true"
                         android:text="Tự đổi Profile theo game"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchAutoPauseOutsideGame"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="false"
+                        android:text="Tự tạm dừng ngoài game"
                         android:textColor="@color/text_primary"
                         android:textSize="13sp" />
 

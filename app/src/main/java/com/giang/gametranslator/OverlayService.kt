@@ -73,6 +73,7 @@ class OverlayService : Service() {
     private lateinit var overlayBgDrawable: GradientDrawable
     private lateinit var overlayParams: WindowManager.LayoutParams
     private lateinit var floatingButton: TextView
+    private var bubbleParams: WindowManager.LayoutParams? = null
 
     private var selectionView: CropSelectionView? = null
     private var quickMenuView: View? = null
@@ -156,6 +157,8 @@ class OverlayService : Service() {
     @Volatile
     private var isPaused = false
     @Volatile
+    private var isAutoPausedOutsideGame = false
+    @Volatile
     private var isSelectingRegion = false
     @Volatile
     private var isPeeking = false
@@ -205,7 +208,7 @@ class OverlayService : Service() {
             val modalOpen = isSelectingRegion || quickMenuView != null ||
                 fullScreenOverlayView != null || historyOverlayView != null ||
                 profilePickerView != null || instantResultOverlayView != null || isFullScreenBusy
-            if (!isPaused && !modalOpen && !isOcrRunning.get() && !isPeeking) {
+            if (!isPaused && !isAutoPausedOutsideGame && !modalOpen && !isOcrRunning.get() && !isPeeking) {
                 triggerCaptureCycle(forceManual = false)
             } else {
                 scheduleNextCapture()
@@ -255,6 +258,25 @@ class OverlayService : Service() {
             }
             SettingsStore.ACTION_MANUAL_SCAN -> {
                 if (isRunning) triggerManualScan()
+                return START_NOT_STICKY
+            }
+            SettingsStore.ACTION_SET_AUTO_PAUSE -> {
+                val shouldPause = intent.getBooleanExtra("PAUSED", false)
+                if (isAutoPausedOutsideGame != shouldPause) {
+                    isAutoPausedOutsideGame = shouldPause
+                    updateBubbleAppearance()
+                    if (shouldPause) {
+                        mainHandler.removeCallbacks(captureRunnable)
+                        mainHandler.removeCallbacks(autoHideRunnable)
+                        translationEngine.cancelActiveRequest()
+                        hasActiveSubtitle = false
+                        lastDisplayedText = ""
+                        mainHandler.post { overlayTextView.visibility = View.GONE }
+                    } else if (isRunning && !settings.manualTriggerOnly) {
+                        deduplicator.resetFrameSignature()
+                        scheduleNextCapture()
+                    }
+                }
                 return START_NOT_STICKY
             }
             SettingsStore.ACTION_FULLSCREEN_TRANSLATE -> {
@@ -309,6 +331,7 @@ class OverlayService : Service() {
         mainHandler.postDelayed({
             recreateVirtualDisplay()
             applyOverlayStyleAndPosition()
+            repositionFloatingBubbleFromPct()
             deduplicator.resetFrameSignature()
         }, 250)
     }
@@ -344,7 +367,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v3.3 đang chạy")
+            .setContentTitle("Game Screen Translator v3.4 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
@@ -574,6 +597,9 @@ class OverlayService : Service() {
         updateBubbleAppearance()
 
         val sizePx = (48 * density).toInt()
+        val (screenW, screenH) = getScreenBounds()
+        val maxX = (screenW - sizePx).coerceAtLeast(1)
+        val maxY = (screenH - sizePx).coerceAtLeast(1)
         val params = WindowManager.LayoutParams(
             sizePx, sizePx,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -581,9 +607,10 @@ class OverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = (16 * density).toInt()
-            y = (140 * density).toInt()
+            x = (maxX * settings.bubbleXPct).toInt().coerceIn(0, maxX)
+            y = (maxY * settings.bubbleYPct).toInt().coerceIn(0, maxY)
         }
+        bubbleParams = params
 
         var initialX = 0
         var initialY = 0
@@ -650,6 +677,14 @@ class OverlayService : Service() {
                             lastTapTime = now
                             mainHandler.postDelayed(singleTapRunnable, 280L)
                         }
+                    } else if (!settings.lockBubblePosition && (dx >= 15 || dy >= 15)) {
+                        val (curW, curH) = getScreenBounds()
+                        val curMaxX = (curW - sizePx).coerceAtLeast(1)
+                        val curMaxY = (curH - sizePx).coerceAtLeast(1)
+                        val xPct = (params.x.toFloat() / curMaxX).coerceIn(0f, 1f)
+                        val yPct = (params.y.toFloat() / curMaxY).coerceIn(0f, 1f)
+                        settings = settings.copy(bubbleXPct = xPct, bubbleYPct = yPct)
+                        SettingsStore.saveBubblePosition(this, xPct, yPct)
                     }
                     scheduleBubbleFade()
                     true
@@ -665,21 +700,39 @@ class OverlayService : Service() {
         }
     }
 
+    private fun repositionFloatingBubbleFromPct() {
+        val params = bubbleParams ?: return
+        if (!::floatingButton.isInitialized || !floatingButton.isAttachedToWindow) return
+        val density = resources.displayMetrics.density
+        val sizePx = (48 * density).toInt()
+        val (screenW, screenH) = getScreenBounds()
+        val maxX = (screenW - sizePx).coerceAtLeast(1)
+        val maxY = (screenH - sizePx).coerceAtLeast(1)
+        params.x = (maxX * settings.bubbleXPct).toInt().coerceIn(0, maxX)
+        params.y = (maxY * settings.bubbleYPct).toInt().coerceIn(0, maxY)
+        try {
+            windowManager.updateViewLayout(floatingButton, params)
+        } catch (_: Exception) {
+        }
+    }
+
     private fun updateBubbleAppearance() {
         if (!::floatingButton.isInitialized) return
         val density = resources.displayMetrics.density
+        val pausedNow = isPaused || isAutoPausedOutsideGame
         val strokeColor = when {
-            isPaused -> Color.parseColor("#FFF59E0B")
+            pausedNow -> Color.parseColor("#FFF59E0B")
             settings.manualTriggerOnly -> Color.parseColor("#FF22C55E")
             else -> Color.parseColor("#FF00D4FF")
         }
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(if (isPaused) Color.parseColor("#DD475569") else Color.parseColor("#DD1E293B"))
+            setColor(if (pausedNow) Color.parseColor("#DD475569") else Color.parseColor("#DD1E293B"))
             setStroke((2f * density).toInt().coerceAtLeast(2), strokeColor)
         }
         floatingButton.background = bg
         floatingButton.text = when {
+            isAutoPausedOutsideGame -> "💤"
             isPaused -> "⏸"
             settings.manualTriggerOnly -> "⚡"
             else -> "🎯"
@@ -1821,14 +1874,14 @@ class OverlayService : Service() {
     }
 
     private fun scheduleNextCapture() {
-        if (!isRunning || settings.manualTriggerOnly) return
-        val delay = if (settings.coverEngSub && hasActiveSubtitle) {
-            max(settings.scanIntervalMs, 1500).toLong()
-        } else {
-            settings.scanIntervalMs.toLong()
+        if (!isRunning || settings.manualTriggerOnly || isAutoPausedOutsideGame) return
+        val minDelay = when {
+            settings.aiVisionOcr -> max(settings.scanIntervalMs, 1500)
+            settings.coverEngSub && hasActiveSubtitle -> max(settings.scanIntervalMs, 1500)
+            else -> settings.scanIntervalMs
         }
         mainHandler.removeCallbacks(captureRunnable)
-        mainHandler.postDelayed(captureRunnable, delay)
+        mainHandler.postDelayed(captureRunnable, minDelay.toLong())
     }
 
     private fun triggerCaptureCycle(forceManual: Boolean) {
@@ -1896,7 +1949,7 @@ class OverlayService : Service() {
             fullBitmap.recycle()
         }
 
-        if (!forceManual && settings.antiDuplicate && deduplicator.isFrameUnchanged(croppedBitmap)) {
+        if (!forceManual && settings.antiDuplicate && deduplicator.isFrameUnchanged(croppedBitmap, relaxedForVision = settings.aiVisionOcr)) {
             croppedBitmap.recycle()
             scheduleNextCapture()
             return

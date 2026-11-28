@@ -124,6 +124,7 @@ data class TranslatorSettings(
     val hdOcrEnhance: Boolean = false,
     val aiVisionOcr: Boolean = false,
     val autoSwitchProfile: Boolean = true,
+    val autoPauseOutsideGame: Boolean = false,
     val subtitlePositionMode: SubtitlePositionMode = SubtitlePositionMode.ABOVE_CROP,
     val cinemaOutlineMode: Boolean = false,
     val choiceFormatter: Boolean = true,
@@ -148,7 +149,9 @@ data class TranslatorSettings(
     val cropLeftPct: Float = 0.08f,
     val cropTopPct: Float = 0.72f,
     val cropRightPct: Float = 0.92f,
-    val cropBottomPct: Float = 0.95f
+    val cropBottomPct: Float = 0.95f,
+    val bubbleXPct: Float = 0.03f,
+    val bubbleYPct: Float = 0.22f
 ) {
     val coverEngSub: Boolean
         get() = subtitlePositionMode == SubtitlePositionMode.COVER_CROP
@@ -205,6 +208,7 @@ object SettingsStore {
     const val ACTION_RELOAD_SETTINGS = "com.giang.gametranslator.ACTION_RELOAD_SETTINGS"
     const val ACTION_MANUAL_SCAN = "com.giang.gametranslator.ACTION_MANUAL_SCAN"
     const val ACTION_FULLSCREEN_TRANSLATE = "com.giang.gametranslator.ACTION_FULLSCREEN_TRANSLATE"
+    const val ACTION_SET_AUTO_PAUSE = "com.giang.gametranslator.ACTION_SET_AUTO_PAUSE"
 
     fun load(context: Context): TranslatorSettings {
         val p = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -228,6 +232,7 @@ object SettingsStore {
             hdOcrEnhance = p.getBoolean("HD_OCR_ENHANCE", false),
             aiVisionOcr = p.getBoolean("AI_VISION_OCR", false),
             autoSwitchProfile = p.getBoolean("AUTO_SWITCH_PROFILE", true),
+            autoPauseOutsideGame = p.getBoolean("AUTO_PAUSE_OUTSIDE_GAME", false),
             subtitlePositionMode = SubtitlePositionMode.fromName(savedPosName, legacyCover),
             cinemaOutlineMode = p.getBoolean("CINEMA_OUTLINE_MODE", false),
             choiceFormatter = p.getBoolean("CHOICE_FORMATTER", true),
@@ -252,7 +257,9 @@ object SettingsStore {
             cropLeftPct = p.getFloat("CROP_LEFT", 0.08f).coerceIn(0f, 0.95f),
             cropTopPct = p.getFloat("CROP_TOP", 0.72f).coerceIn(0f, 0.95f),
             cropRightPct = p.getFloat("CROP_RIGHT", 0.92f).coerceIn(0.05f, 1f),
-            cropBottomPct = p.getFloat("CROP_BOTTOM", 0.95f).coerceIn(0.05f, 1f)
+            cropBottomPct = p.getFloat("CROP_BOTTOM", 0.95f).coerceIn(0.05f, 1f),
+            bubbleXPct = p.getFloat("BUBBLE_X_PCT", 0.03f).coerceIn(0f, 1f),
+            bubbleYPct = p.getFloat("BUBBLE_Y_PCT", 0.22f).coerceIn(0f, 1f)
         )
     }
 
@@ -272,6 +279,7 @@ object SettingsStore {
             .putBoolean("HD_OCR_ENHANCE", s.hdOcrEnhance)
             .putBoolean("AI_VISION_OCR", s.aiVisionOcr)
             .putBoolean("AUTO_SWITCH_PROFILE", s.autoSwitchProfile)
+            .putBoolean("AUTO_PAUSE_OUTSIDE_GAME", s.autoPauseOutsideGame)
             .putString("SUBTITLE_POSITION_MODE", s.subtitlePositionMode.name)
             .putBoolean("COVER_ENG_SUB", s.coverEngSub)
             .putBoolean("CINEMA_OUTLINE_MODE", s.cinemaOutlineMode)
@@ -298,6 +306,15 @@ object SettingsStore {
             .putFloat("CROP_TOP", s.cropTopPct.coerceIn(0f, 0.95f))
             .putFloat("CROP_RIGHT", s.cropRightPct.coerceIn(0.05f, 1f))
             .putFloat("CROP_BOTTOM", s.cropBottomPct.coerceIn(0.05f, 1f))
+            .putFloat("BUBBLE_X_PCT", s.bubbleXPct.coerceIn(0f, 1f))
+            .putFloat("BUBBLE_Y_PCT", s.bubbleYPct.coerceIn(0f, 1f))
+            .apply()
+    }
+
+    fun saveBubblePosition(context: Context, xPct: Float, yPct: Float) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+            .putFloat("BUBBLE_X_PCT", xPct.coerceIn(0f, 1f))
+            .putFloat("BUBBLE_Y_PCT", yPct.coerceIn(0f, 1f))
             .apply()
     }
 
