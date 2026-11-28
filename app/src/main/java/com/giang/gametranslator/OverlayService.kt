@@ -367,7 +367,7 @@ class OverlayService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         val notification = Notification.Builder(this, channelId)
-            .setContentTitle("Game Screen Translator v3.4 đang chạy")
+            .setContentTitle("Game Screen Translator v3.5 đang chạy")
             .setContentText("Chạm 🎯 khoanh/dịch • Chạm đúp 🎯 toàn màn hình • Giữ 🎯 mở menu")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()

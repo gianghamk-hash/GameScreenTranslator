@@ -126,6 +126,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var txtStatus: TextView
     private lateinit var txtVersionBadge: TextView
 
+    private var lastPromptedClipboardKey = ""
     private var isOfflineDownloaded = false
     private var isDownloadingOffline = false
     private var cancelDownloadPoller: (() -> Unit)? = null
@@ -188,15 +189,16 @@ class MainActivity : AppCompatActivity() {
     private fun getCurrentVersionTag(): String {
         return try {
             val info = packageManager.getPackageInfo(packageName, 0)
-            val vName = info.versionName ?: "3.4"
+            val vName = info.versionName ?: "3.5"
             if (vName.startsWith("v", ignoreCase = true)) vName else "v$vName"
         } catch (_: Exception) {
-            "v3.4"
+            "v3.5"
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installCrashLogger()
         setContentView(R.layout.activity_main)
 
         projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -222,6 +224,17 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         refreshGamepadServiceButton()
         refreshBatteryOptButton()
+        window.decorView.postDelayed({ autoDetectClipboardApiKey() }, 350L)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try {
+            if (::edtApiKey.isInitialized) {
+                saveCurrentSettings()
+            }
+        } catch (_: Exception) {
+        }
     }
 
     override fun onDestroy() {
@@ -337,6 +350,13 @@ class MainActivity : AppCompatActivity() {
 
         btnSaveProfile.setOnClickListener { showSaveProfileDialog() }
         btnSwitchProfile.setOnClickListener { showSwitchProfileDialog() }
+
+        findViewById<MaterialButton>(R.id.btnGetApiKey).setOnClickListener {
+            openApiKeyPortal()
+        }
+        findViewById<MaterialButton>(R.id.btnTestApiKey).setOnClickListener {
+            testCurrentApiKey()
+        }
 
         btnSelectVoice.setOnClickListener { showVoicePickerDialog() }
         btnTestVoice.setOnClickListener {
@@ -1198,6 +1218,134 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    private fun installCrashLogger() {
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                DiagnosticLogStore.error(
+                    applicationContext,
+                    "Crash (${thread.name}): ${throwable.javaClass.simpleName}: ${throwable.message}"
+                )
+            } catch (_: Exception) {
+            }
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+    }
+
+    private fun openApiKeyPortal() {
+        val s = collectSettingsFromUi()
+        val (title, url) = when (s.aiProvider) {
+            AiProvider.GROQ -> "Groq Console" to "https://console.groq.com/keys"
+            AiProvider.OPENROUTER -> "OpenRouter Keys" to "https://openrouter.ai/keys"
+            AiProvider.DEEPSEEK -> "DeepSeek Platform" to "https://platform.deepseek.com/api_keys"
+            AiProvider.GEMINI -> "Google AI Studio (Gemini)" to "https://aistudio.google.com/apikey"
+        }
+        Toast.makeText(
+            this,
+            "Mở $title → tạo & Copy Key rồi quay lại App (sẽ tự động phát hiện và dán!)",
+            Toast.LENGTH_LONG
+        ).show()
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Không mở được trình duyệt: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun autoDetectClipboardApiKey() {
+        if (isFinishing || isDestroyed) return
+        try {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+            val clipText = cm.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?.trim() ?: return
+            if (clipText.length < 30 || clipText.length > 160 || clipText.contains(" ") || clipText.contains("\n")) return
+            if (clipText == lastPromptedClipboardKey) return
+
+            val isGemini = clipText.startsWith("AIza") && clipText.length >= 35
+            val isGroq = clipText.startsWith("gsk_") && clipText.length >= 35
+            val isOpenRouter = clipText.startsWith("sk-or-") && clipText.length >= 35
+            if (!isGemini && !isGroq && !isOpenRouter) return
+
+            val curGemini = edtApiKey.text?.toString() ?: ""
+            val curAlt = edtAltApiKey.text?.toString() ?: ""
+            if (curGemini.contains(clipText) || curAlt.contains(clipText)) return
+
+            lastPromptedClipboardKey = clipText
+            val keyType = when {
+                isGemini -> "Gemini API Key"
+                isGroq -> "Groq API Key"
+                else -> "OpenRouter API Key"
+            }
+
+            AlertDialog.Builder(this)
+                .setTitle("Phát hiện $keyType trong Clipboard")
+                .setMessage("Tự động dán và lưu Key mới (${clipText.take(8)}...${clipText.takeLast(4)}) vào cấu hình?")
+                .setPositiveButton("Dán & Lưu ngay") { _, _ ->
+                    if (isGemini) {
+                        val updated = if (curGemini.trim().isEmpty()) clipText else "${curGemini.trim()}\n$clipText"
+                        edtApiKey.setText(updated)
+                    } else {
+                        val updated = if (curAlt.trim().isEmpty()) clipText else "${curAlt.trim()}\n$clipText"
+                        edtAltApiKey.setText(updated)
+                        if (isGroq) chipGroupAiProvider.check(R.id.chipProviderGroq)
+                        if (isOpenRouter) chipGroupAiProvider.check(R.id.chipProviderOpenRouter)
+                    }
+                    saveCurrentSettings()
+                    updateFolderSummaries()
+                    Toast.makeText(this, "Đã tự động lưu $keyType!", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Bỏ qua", null)
+                .show()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun testCurrentApiKey() {
+        saveCurrentSettings()
+        val s = collectSettingsFromUi()
+        if (!s.hasAnyAiKey()) {
+            Toast.makeText(this, "Chưa có API Key! Hãy bấm 'Lấy Key' trước.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val testSettings = s.copy(translationMode = TranslationMode.ONLINE, useContextMemory = false)
+        val tester = TranslationEngine(applicationContext)
+        val startMs = System.currentTimeMillis()
+        Toast.makeText(this, "Đang kiểm tra kết nối ${s.aiProvider.label}...", Toast.LENGTH_SHORT).show()
+        tester.translate(
+            sourceText = "Hello hero",
+            settings = testSettings,
+            onSuccess = { translated, _ ->
+                val ms = System.currentTimeMillis() - startMs
+                tester.close()
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        Toast.makeText(this, "✓ Key tốt (${ms}ms): $translated", Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+            onError = { err ->
+                tester.close()
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        Toast.makeText(this, "✕ Lỗi Key: $err", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        )
+    }
+
+    private fun isApkSignatureCompatible(apkFile: File): Boolean {
+        return try {
+            val flags = PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong())
+            val installedInfo = packageManager.getPackageInfo(packageName, flags)
+            val archiveInfo = packageManager.getPackageArchiveInfo(apkFile.absolutePath, flags) ?: return true
+            val installedSigs = installedInfo.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet() ?: return true
+            val archiveSigs = archiveInfo.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet() ?: return true
+            installedSigs.intersect(archiveSigs).isNotEmpty()
+        } catch (_: Exception) {
+            true
+        }
+    }
+
     private fun downloadAndInstallApk(apkUrl: String) {
         if (!packageManager.canRequestPackageInstalls()) {
             Toast.makeText(this, "Hãy cấp quyền cài đặt ứng dụng rồi bấm cập nhật lại!", Toast.LENGTH_LONG).show()
@@ -1205,8 +1353,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        txtStatus.text = "Đang tải file APK..."
-        val request = Request.Builder().url(apkUrl).build()
+        txtStatus.text = "Đang tải APK..."
+        val request = Request.Builder()
+            .url(apkUrl)
+            .header("User-Agent", "GameScreenTranslator-Android")
+            .build()
 
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -1221,26 +1372,61 @@ class MainActivity : AppCompatActivity() {
                     }
                     try {
                         val apkFile = File(cacheDir, "update.apk")
-                        it.body?.byteStream()?.use { input ->
+                        if (apkFile.exists()) apkFile.delete()
+                        val body = it.body ?: throw IOException("Phản hồi rỗng từ GitHub")
+                        val totalBytes = body.contentLength()
+                        var downloadedBytes = 0L
+                        var lastUiUpdateMs = 0L
+
+                        body.byteStream().use { input ->
                             FileOutputStream(apkFile).use { output ->
-                                input.copyTo(output)
+                                val buf = ByteArray(16 * 1024)
+                                var read: Int
+                                while (input.read(buf).also { n -> read = n } != -1) {
+                                    output.write(buf, 0, read)
+                                    downloadedBytes += read
+                                    val now = System.currentTimeMillis()
+                                    if (totalBytes > 0 && now - lastUiUpdateMs > 250L) {
+                                        lastUiUpdateMs = now
+                                        val pct = ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                                        runOnUiThread { txtStatus.text = "Đang tải APK: $pct%" }
+                                    }
+                                }
+                                output.flush()
                             }
                         }
 
+                        if (!apkFile.exists() || apkFile.length() < 500_000L) {
+                            throw IOException("File APK tải về không đầy đủ (${apkFile.length()} bytes)")
+                        }
+
+                        val sigOk = isApkSignatureCompatible(apkFile)
                         val apkUri = FileProvider.getUriForFile(
                             this@MainActivity,
                             "$packageName.provider",
                             apkFile
                         )
-
                         val installIntent = Intent(Intent.ACTION_VIEW).apply {
                             setDataAndType(apkUri, "application/vnd.android.package-archive")
-                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP
                         }
 
                         runOnUiThread {
-                            txtStatus.text = "Tải xong! Đang mở trình cài đặt..."
-                            startActivity(installIntent)
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            if (!sigOk) {
+                                txtStatus.text = "Khác chữ ký với bản cũ trên máy"
+                                AlertDialog.Builder(this@MainActivity)
+                                    .setTitle("Cần gỡ bản cũ 1 lần cuối")
+                                    .setMessage("Bản đang cài trên máy có chữ ký cũ khác với bản Signed Release mới tải về nên Android sẽ chặn cài đè.\n\nHãy bấm 'Xuất JSON' để lưu cài đặt, gỡ bản cũ 1 lần cuối rồi cài bản mới — từ các bản sau OTA sẽ tự cài đè 100%!")
+                                    .setPositiveButton("Vẫn mở cài đặt") { _, _ -> startActivity(installIntent) }
+                                    .setNegativeButton("Đóng", null)
+                                    .show()
+                            } else {
+                                txtStatus.text = "Tải xong 100%! Đang mở trình cài đặt..."
+                                startActivity(installIntent)
+                            }
                         }
                     } catch (e: Exception) {
                         runOnUiThread { txtStatus.text = "Lỗi cài đặt: ${e.message}" }
