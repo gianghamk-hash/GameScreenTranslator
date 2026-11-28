@@ -43,6 +43,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
 
@@ -127,6 +128,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var txtVersionBadge: TextView
 
     private var lastPromptedClipboardKey = ""
+    private var keyTestEngine: TranslationEngine? = null
     private var isOfflineDownloaded = false
     private var isDownloadingOffline = false
     private var cancelDownloadPoller: (() -> Unit)? = null
@@ -244,6 +246,8 @@ class MainActivity : AppCompatActivity() {
         if (::previewSpeaker.isInitialized) {
             previewSpeaker.shutdown()
         }
+        keyTestEngine?.close()
+        keyTestEngine = null
     }
 
     private fun setupCollapsibleFolders() {
@@ -694,10 +698,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun notifyOverlayReloadIfRunning() {
         if (OverlayService.isServiceRunning) {
-            startService(Intent(this, OverlayService::class.java).apply {
-                action = SettingsStore.ACTION_RELOAD_SETTINGS
-            })
+            try {
+                startService(Intent(this, OverlayService::class.java).apply {
+                    action = SettingsStore.ACTION_RELOAD_SETTINGS
+                })
+            } catch (_: Exception) {
+            }
         }
+    }
+
+    private fun snapSliderValue(raw: Float, min: Float, max: Float, step: Float): Float {
+        val clamped = raw.coerceIn(min, max)
+        val steps = ((clamped - min) / step).roundToInt()
+        val snapped = min + steps * step
+        return ((snapped * 100f).roundToInt() / 100f).coerceIn(min, max)
     }
 
     private fun showDialogueHistoryDialog() {
@@ -786,17 +800,17 @@ class MainActivity : AppCompatActivity() {
 
         switchTtsEnabled.isChecked = s.ttsEnabled
         selectedTtsVoiceName = s.ttsVoiceName
-        sliderTtsRate.value = s.ttsSpeechRate.coerceIn(0.80f, 1.80f)
+        sliderTtsRate.value = snapSliderValue(s.ttsSpeechRate, 0.80f, 1.80f, 0.05f)
         updateVoiceButtonLabel()
 
         switchManualTriggerOnly.isChecked = s.manualTriggerOnly
         switchAutoSwitchProfile.isChecked = s.autoSwitchProfile
         switchAutoPauseOutsideGame.isChecked = s.autoPauseOutsideGame
 
-        sliderScanSpeed.value = s.scanIntervalMs.toFloat().coerceIn(300f, 1500f)
-        sliderFontSize.value = s.subtitleFontSizeSp.coerceIn(12f, 28f)
-        sliderBgAlpha.value = s.subtitleBgAlphaPct.toFloat().coerceIn(40f, 100f)
-        sliderAutoHide.value = s.autoHideSeconds.toFloat().coerceIn(0f, 15f)
+        sliderScanSpeed.value = snapSliderValue(s.scanIntervalMs.toFloat(), 300f, 1500f, 50f)
+        sliderFontSize.value = snapSliderValue(s.subtitleFontSizeSp, 12f, 28f, 1f)
+        sliderBgAlpha.value = snapSliderValue(s.subtitleBgAlphaPct.toFloat(), 40f, 100f, 5f)
+        sliderAutoHide.value = snapSliderValue(s.autoHideSeconds.toFloat(), 0f, 15f, 1f)
 
         when (s.subtitleColor) {
             SubtitleColor.WHITE -> chipGroupColor.check(R.id.chipColorWhite)
@@ -1307,7 +1321,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val testSettings = s.copy(translationMode = TranslationMode.ONLINE, useContextMemory = false)
-        val tester = TranslationEngine(applicationContext)
+        keyTestEngine?.cancelActiveRequest()
+        val tester = keyTestEngine ?: TranslationEngine(applicationContext).also { keyTestEngine = it }
         val startMs = System.currentTimeMillis()
         Toast.makeText(this, "Đang kiểm tra kết nối ${s.aiProvider.label}...", Toast.LENGTH_SHORT).show()
         tester.translate(
@@ -1315,7 +1330,6 @@ class MainActivity : AppCompatActivity() {
             settings = testSettings,
             onSuccess = { translated, _ ->
                 val ms = System.currentTimeMillis() - startMs
-                tester.close()
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
                         Toast.makeText(this, "✓ Key tốt (${ms}ms): $translated", Toast.LENGTH_LONG).show()
@@ -1323,7 +1337,6 @@ class MainActivity : AppCompatActivity() {
                 }
             },
             onError = { err ->
-                tester.close()
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
                         Toast.makeText(this, "✕ Lỗi Key: $err", Toast.LENGTH_LONG).show()

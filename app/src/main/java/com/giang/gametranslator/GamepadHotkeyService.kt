@@ -29,19 +29,19 @@ class GamepadHotkeyService : AccessibilityService() {
         if (matched != null) {
             if (settings.autoSwitchProfile && !matched.name.equals(settings.activeProfileName, ignoreCase = true)) {
                 GameProfileStore.applyProfile(this, matched)
-                startService(Intent(this, OverlayService::class.java).apply {
+                safeSendOverlayIntent(Intent(this, OverlayService::class.java).apply {
                     action = SettingsStore.ACTION_RELOAD_SETTINGS
                 })
                 Toast.makeText(this, "🎮 Tự đổi Profile: ${matched.name}", Toast.LENGTH_SHORT).show()
             }
             if (settings.autoPauseOutsideGame) {
-                startService(Intent(this, OverlayService::class.java).apply {
+                safeSendOverlayIntent(Intent(this, OverlayService::class.java).apply {
                     action = SettingsStore.ACTION_SET_AUTO_PAUSE
                     putExtra("PAUSED", false)
                 })
             }
         } else if (settings.autoPauseOutsideGame && GameProfileStore.hasAnyLinkedPackage(this)) {
-            startService(Intent(this, OverlayService::class.java).apply {
+            safeSendOverlayIntent(Intent(this, OverlayService::class.java).apply {
                 action = SettingsStore.ACTION_SET_AUTO_PAUSE
                 putExtra("PAUSED", true)
             })
@@ -66,18 +66,26 @@ class GamepadHotkeyService : AccessibilityService() {
         when {
             settings.hotkeyTranslate != GamepadHotkey.NONE && keyCode == settings.hotkeyTranslate.keyCode -> {
                 lastTriggerMs = now
-                startService(Intent(this, OverlayService::class.java).apply {
+                safeSendOverlayIntent(Intent(this, OverlayService::class.java).apply {
                     action = SettingsStore.ACTION_MANUAL_SCAN
                 })
             }
             settings.hotkeyFullScreen != GamepadHotkey.NONE && keyCode == settings.hotkeyFullScreen.keyCode -> {
                 lastTriggerMs = now
-                startService(Intent(this, OverlayService::class.java).apply {
+                safeSendOverlayIntent(Intent(this, OverlayService::class.java).apply {
                     action = SettingsStore.ACTION_FULLSCREEN_TRANSLATE
                 })
             }
         }
         // Trả về false để không chặn phím của game nếu game có dùng
         return false
+    }
+
+    private fun safeSendOverlayIntent(intent: Intent) {
+        if (!OverlayService.isServiceRunning) return
+        try {
+            startService(intent)
+        } catch (_: Exception) {
+        }
     }
 }
